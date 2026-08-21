@@ -428,12 +428,6 @@ function openHealthLogShortcut(){
   const payload = { durationMinutes: s.durationMinutes, esCardio: s.esCardio, fecha: s.date };
   window.location.href = buildHealthLogUrl(payload);
 }
-function testHealthLogShortcut(){
-  // Botón temporal de prueba (tab Historial): manda datos fijos sin necesidad
-  // de completar una rutina real. Quitar cuando el Shortcut ya funcione bien.
-  const payload = { durationMinutes: 20, esCardio: false, fecha: new Date().toISOString().slice(0,10) };
-  window.location.href = buildHealthLogUrl(payload);
-}
 function computeIntensity(health){
   if(!health) return { workSeconds: WORK, note: '' };
   const lowSleep = typeof health.sleepHours === 'number' && health.sleepHours < 6;
@@ -796,11 +790,6 @@ function renderHistorial(){
       <div class="stat"><div class="num">${streak}</div><div class="lbl">Racha (días)</div></div>
     </div>
     <div class="card">${sessionsHtml}</div>
-    <div class="card">
-      <div class="eyebrow" style="margin-bottom:8px;">🧪 Prueba de Apple Health (temporal)</div>
-      <p style="color:var(--chalk-dim);font-size:12.5px;margin:0 0 10px;">Manda datos de ejemplo (20 min, no-cardio) al Shortcut "Rutina Gym - Registrar Entrenamiento" sin completar una rutina real. Revisa la consola del navegador para ver el JSON/URL exactos que se envían.</p>
-      <button class="btn-ghost btn-block" onclick="testHealthLogShortcut()">Probar "Registrar en Apple Health"</button>
-    </div>
   `;
 }
 
