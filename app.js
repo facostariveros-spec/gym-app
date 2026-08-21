@@ -116,69 +116,69 @@ const FALLBACK_POSES = {
 /* ---------- Base de ejercicios ---------- */
 // equip: lista de equipo con el que se puede hacer (basta con tener UNO de la lista)
 const EXERCISES = [
-  { id:'squat_barbell', name:'Sentadilla con barra', group:'piernas', equip:['barbell_rack'], reps:'10 reps', pose:'squat',
+  { id:'squat_barbell', name:'Sentadilla con barra', group:'piernas', equip:['barbell_rack'], sets:3, reps:'10 reps', pose:'squat',
     desc:'Pies al ancho de hombros, barra sobre la espalda alta. Baja hasta que los muslos queden paralelos al piso y empuja con los talones para subir.' },
-  { id:'rdl_barbell', name:'Peso muerto rumano con barra', group:'piernas', equip:['barbell_rack'], reps:'10 reps', pose:'hinge',
+  { id:'rdl_barbell', name:'Peso muerto rumano con barra', group:'piernas', equip:['barbell_rack'], sets:3, reps:'10 reps', pose:'hinge',
     desc:'Rodillas semi-flexionadas, baja la barra pegada a las piernas manteniendo la espalda recta. Siente el estiramiento en isquiotibiales.' },
-  { id:'ohp_barbell', name:'Press militar con barra', group:'hombros', equip:['barbell_rack'], reps:'8 reps', pose:'press_overhead',
+  { id:'ohp_barbell', name:'Press militar con barra', group:'hombros', equip:['barbell_rack'], sets:3, reps:'8 reps', pose:'press_overhead',
     desc:'De pie, barra a la altura de clavícula. Empuja hacia arriba sin arquear la espalda, baja con control.' },
-  { id:'row_barbell', name:'Remo con barra', group:'espalda', equip:['barbell_rack'], reps:'10 reps', pose:'row',
+  { id:'row_barbell', name:'Remo con barra', group:'espalda', equip:['barbell_rack'], sets:3, reps:'10 reps', pose:'row',
     desc:'Torso inclinado ~45°, jala la barra hacia el abdomen apretando los omóplatos, baja controlado.' },
-  { id:'shoulder_press_db', name:'Press de hombro con mancuernas', group:'hombros', equip:['dumbbells'], reps:'10 reps', pose:'press_overhead',
+  { id:'shoulder_press_db', name:'Press de hombro con mancuernas', group:'hombros', equip:['dumbbells'], sets:3, reps:'10 reps', pose:'press_overhead',
     desc:'Sentado o de pie, mancuernas a la altura de los hombros. Empuja hacia arriba sin bloquear del todo los codos.' },
-  { id:'curl_db', name:'Curl de bíceps con mancuernas', group:'brazos', equip:['dumbbells'], reps:'12 reps', pose:'curl',
+  { id:'curl_db', name:'Curl de bíceps con mancuernas', group:'brazos', equip:['dumbbells'], sets:3, reps:'12 reps', pose:'curl',
     desc:'Codos pegados al torso, sube la mancuerna contrayendo el bíceps, baja lento sin balancear el cuerpo.' },
-  { id:'bench_press_db', name:'Press de banca con mancuernas', group:'pecho', equip:['dumbbells','bench'], reps:'10 reps', pose:'press_horizontal',
+  { id:'bench_press_db', name:'Press de banca con mancuernas', group:'pecho', equip:['dumbbells','bench'], sets:3, reps:'10 reps', pose:'press_horizontal',
     desc:'Acostado en la banca, empuja las mancuernas hacia arriba juntándolas ligeramente arriba, baja controlado.' },
-  { id:'row_one_arm_db', name:'Remo a una mano con mancuerna', group:'espalda', equip:['dumbbells','bench'], reps:'10 reps c/lado', pose:'row',
+  { id:'row_one_arm_db', name:'Remo a una mano con mancuerna', group:'espalda', equip:['dumbbells','bench'], sets:3, reps:'10 reps c/lado', pose:'row',
     desc:'Apoya rodilla y mano en la banca, jala la mancuerna hacia la cadera apretando el omóplato.' },
-  { id:'lunge_db', name:'Zancadas con mancuernas', group:'piernas', equip:['dumbbells'], reps:'10 reps c/pierna', pose:'squat',
+  { id:'lunge_db', name:'Zancadas con mancuernas', group:'piernas', equip:['dumbbells'], sets:3, reps:'10 reps c/pierna', pose:'squat',
     desc:'Da un paso al frente, baja la rodilla trasera casi al piso, empuja con el talón delantero para volver.' },
-  { id:'rdl_db', name:'Peso muerto rumano con mancuernas', group:'piernas', equip:['dumbbells'], reps:'10 reps', pose:'hinge',
+  { id:'rdl_db', name:'Peso muerto rumano con mancuernas', group:'piernas', equip:['dumbbells'], sets:3, reps:'10 reps', pose:'hinge',
     desc:'Igual que con barra: cadera atrás, espalda recta, baja las mancuernas pegadas a las piernas.' },
-  { id:'leg_curl_machine', name:'Curl femoral en máquina', group:'piernas', equip:['leg_machine'], reps:'12 reps', pose:'extension',
+  { id:'leg_curl_machine', name:'Curl femoral en máquina', group:'piernas', equip:['leg_machine'], sets:3, reps:'12 reps', pose:'extension',
     desc:'Espalda apoyada, flexiona la rodilla llevando el rodillo hacia los glúteos, controla la bajada.' },
-  { id:'leg_ext_machine', name:'Extensión de cuádriceps en máquina', group:'piernas', equip:['leg_machine'], reps:'12 reps', pose:'extension',
+  { id:'leg_ext_machine', name:'Extensión de cuádriceps en máquina', group:'piernas', equip:['leg_machine'], sets:3, reps:'12 reps', pose:'extension',
     desc:'Extiende la rodilla contra el rodillo, aprieta arriba un segundo y baja despacio.' },
-  { id:'cable_row', name:'Remo en polea', group:'espalda', equip:['cable_machine'], reps:'10 reps', pose:'row',
+  { id:'cable_row', name:'Remo en polea', group:'espalda', equip:['cable_machine'], sets:3, reps:'10 reps', pose:'row',
     desc:'Espalda recta, jala hacia el abdomen apretando los omóplatos entre sí, evita balancear el torso.' },
-  { id:'lat_pulldown', name:'Jalón al pecho en polea', group:'espalda', equip:['cable_machine'], reps:'10 reps', pose:'pull_vertical',
+  { id:'lat_pulldown', name:'Jalón al pecho en polea', group:'espalda', equip:['cable_machine'], sets:3, reps:'10 reps', pose:'pull_vertical',
     desc:'Agarre ancho, jala la barra hacia la parte alta del pecho llevando los codos hacia abajo y atrás.' },
-  { id:'cable_chest_press', name:'Press de pecho en polea', group:'pecho', equip:['cable_machine'], reps:'10 reps', pose:'press_horizontal',
+  { id:'cable_chest_press', name:'Press de pecho en polea', group:'pecho', equip:['cable_machine'], sets:3, reps:'10 reps', pose:'press_horizontal',
     desc:'Poleas a la altura del pecho, empuja hacia el frente juntando las manos, controla el regreso.' },
-  { id:'cable_curl', name:'Curl de bíceps en polea', group:'brazos', equip:['cable_machine'], reps:'12 reps', pose:'curl',
+  { id:'cable_curl', name:'Curl de bíceps en polea', group:'brazos', equip:['cable_machine'], sets:3, reps:'12 reps', pose:'curl',
     desc:'Codos fijos a los costados, sube la cuerda o barra contrayendo el bíceps.' },
-  { id:'cable_tricep', name:'Extensión de tríceps en polea', group:'brazos', equip:['cable_machine'], reps:'12 reps', pose:'extension',
+  { id:'cable_tricep', name:'Extensión de tríceps en polea', group:'brazos', equip:['cable_machine'], sets:3, reps:'12 reps', pose:'extension',
     desc:'Codos pegados al torso, empuja la cuerda hacia abajo extendiendo el codo por completo.' },
-  { id:'face_pull', name:'Face pull en polea', group:'hombros', equip:['cable_machine'], reps:'12 reps', pose:'pull_vertical',
+  { id:'face_pull', name:'Face pull en polea', group:'hombros', equip:['cable_machine'], sets:3, reps:'12 reps', pose:'pull_vertical',
     desc:'Jala la cuerda hacia la cara separando las manos, codos altos, aprieta omóplatos.' },
-  { id:'kb_swing', name:'Swing con kettlebell', group:'piernas', equip:['kettlebell'], reps:'15 reps', pose:'hinge',
+  { id:'kb_swing', name:'Swing con kettlebell', group:'piernas', equip:['kettlebell'], sets:3, reps:'15 reps', pose:'hinge',
     desc:'Bisagra de cadera explosiva, el impulso viene de glúteos y caderas, no de los brazos.' },
-  { id:'goblet_squat', name:'Sentadilla goblet con kettlebell', group:'piernas', equip:['kettlebell'], reps:'12 reps', pose:'squat',
+  { id:'goblet_squat', name:'Sentadilla goblet con kettlebell', group:'piernas', equip:['kettlebell'], sets:3, reps:'12 reps', pose:'squat',
     desc:'Sostén la kettlebell frente al pecho, baja en sentadilla manteniendo el torso erguido.' },
-  { id:'band_row', name:'Remo con banda elástica', group:'espalda', equip:['resistance_band'], reps:'12 reps', pose:'row',
+  { id:'band_row', name:'Remo con banda elástica', group:'espalda', equip:['resistance_band'], sets:3, reps:'12 reps', pose:'row',
     desc:'Ancla la banda al frente, jala hacia el abdomen apretando los omóplatos.' },
-  { id:'band_chest_press', name:'Press de pecho con banda', group:'pecho', equip:['resistance_band'], reps:'12 reps', pose:'press_horizontal',
+  { id:'band_chest_press', name:'Press de pecho con banda', group:'pecho', equip:['resistance_band'], sets:3, reps:'12 reps', pose:'press_horizontal',
     desc:'Banda anclada detrás, empuja hacia el frente extendiendo los brazos con control.' },
-  { id:'pull_up', name:'Dominadas', group:'espalda', equip:['pull_up_bar'], reps:'6-8 reps', pose:'pull_vertical',
+  { id:'pull_up', name:'Dominadas', group:'espalda', equip:['pull_up_bar'], sets:3, reps:'6-8 reps', pose:'pull_vertical',
     desc:'Agarre firme, jala llevando el pecho hacia la barra, baja con control total.' },
-  { id:'elliptical', name:'Elíptica', group:'cardio', equip:['elliptical_cardio'], reps:'2 min', pose:'cardio',
+  { id:'elliptical', name:'Elíptica', group:'cardio', equip:['elliptical_cardio'], sets:1, reps:'2 min', pose:'cardio',
     desc:'Ritmo moderado-alto, mantén el torso erguido y usa brazos y piernas por igual.' },
-  { id:'pushup', name:'Flexiones', group:'pecho', equip:['bodyweight'], reps:'12 reps', pose:'press_horizontal',
+  { id:'pushup', name:'Flexiones', group:'pecho', equip:['bodyweight'], sets:3, reps:'12 reps', pose:'press_horizontal',
     desc:'Cuerpo recto de cabeza a talones, baja el pecho casi al piso y empuja de vuelta arriba.' },
-  { id:'bw_squat', name:'Sentadilla sin peso', group:'piernas', equip:['bodyweight'], reps:'15 reps', pose:'squat',
+  { id:'bw_squat', name:'Sentadilla sin peso', group:'piernas', equip:['bodyweight'], sets:3, reps:'15 reps', pose:'squat',
     desc:'Pies al ancho de hombros, baja como sentándote en una silla, rodillas alineadas con los pies.' },
-  { id:'plank', name:'Plancha', group:'core', equip:['bodyweight'], reps:'30-40 seg', pose:'plank',
+  { id:'plank', name:'Plancha', group:'core', equip:['bodyweight'], sets:3, reps:'30-40 seg', pose:'plank',
     desc:'Cuerpo alineado en línea recta, abdomen contraído, evita que la cadera caiga o suba.' },
-  { id:'bw_lunge', name:'Zancadas sin peso', group:'piernas', equip:['bodyweight'], reps:'12 reps c/pierna', pose:'squat',
+  { id:'bw_lunge', name:'Zancadas sin peso', group:'piernas', equip:['bodyweight'], sets:3, reps:'12 reps c/pierna', pose:'squat',
     desc:'Paso al frente, baja la rodilla trasera casi al piso, vuelve empujando con el talón delantero.' },
-  { id:'burpee', name:'Burpees', group:'cardio', equip:['bodyweight'], reps:'10 reps', pose:'cardio',
+  { id:'burpee', name:'Burpees', group:'cardio', equip:['bodyweight'], sets:3, reps:'10 reps', pose:'cardio',
     desc:'De pie a plancha, flexión opcional, salta los pies hacia las manos y salta arriba.' },
-  { id:'mountain_climber', name:'Mountain climbers', group:'core', equip:['bodyweight'], reps:'30 seg', pose:'core_dynamic',
+  { id:'mountain_climber', name:'Mountain climbers', group:'core', equip:['bodyweight'], sets:3, reps:'30 seg', pose:'core_dynamic',
     desc:'En posición de plancha, lleva las rodillas al pecho alternando rápido, cadera estable.' },
-  { id:'glute_bridge', name:'Puente de glúteo', group:'piernas', equip:['bodyweight'], reps:'15 reps', pose:'hinge',
+  { id:'glute_bridge', name:'Puente de glúteo', group:'piernas', equip:['bodyweight'], sets:3, reps:'15 reps', pose:'hinge',
     desc:'Acostado boca arriba, empuja la cadera hacia arriba apretando los glúteos, baja con control.' },
-  { id:'superman', name:'Superman', group:'core', equip:['bodyweight'], reps:'12 reps', pose:'core_dynamic',
+  { id:'superman', name:'Superman', group:'core', equip:['bodyweight'], sets:3, reps:'12 reps', pose:'core_dynamic',
     desc:'Boca abajo, levanta brazos y piernas a la vez apretando la espalda baja, baja despacio.' },
 ];
 
@@ -355,10 +355,33 @@ function generateRoutine(equipment, muscleGroups, opts){
       return new Date(d1) - new Date(d2);
     });
 
-    picked.push(pool[0]);
+    // copia superficial: el usuario puede editar series/reps de la rutina de hoy sin tocar EXERCISES
+    picked.push({ ...pool[0] });
   });
 
   return picked;
+}
+
+// Arma la lista real de estaciones a recorrer (una por cada serie de cada ejercicio),
+// según el estilo elegido: 'circuito' rota entre ejercicios por ronda, 'porEjercicio'
+// completa todas las series de un ejercicio antes de pasar al siguiente.
+function buildPlan(routine, style){
+  const plan = [];
+  if(style === 'porEjercicio'){
+    routine.forEach(ex=>{
+      const totalSets = ex.sets || 1;
+      for(let s=1; s<=totalSets; s++) plan.push({ exercise: ex, setNumber: s, totalSets });
+    });
+  } else {
+    const maxSets = routine.reduce((m,ex)=> Math.max(m, ex.sets || 1), 1);
+    for(let round=1; round<=maxSets; round++){
+      routine.forEach(ex=>{
+        const totalSets = ex.sets || 1;
+        if(round <= totalSets) plan.push({ exercise: ex, setNumber: round, totalSets });
+      });
+    }
+  }
+  return plan;
 }
 
 /* ================= ESTADO DE LA APP ================= */
@@ -368,6 +391,8 @@ let state = {
   equipment: [],
   muscleGroups: [],
   routine: [],
+  workoutStyle: 'circuito', // 'circuito' | 'porEjercicio' — se carga desde settings al iniciar
+  plan: [],                 // estaciones reales a recorrer (una por cada serie), armadas al empezar
   step: 0,
   secondsLeft: WORK,
   workSeconds: WORK,        // segundos de trabajo de la sesión (se ajusta según Apple Health)
@@ -465,6 +490,7 @@ function initState(){
   state.muscleGroups = MUSCLE_GROUPS.map(m=>m.id); // por defecto todo marcado, el usuario desmarca
   state.screen = 'equip';
   state.health = loadHealth();
+  state.workoutStyle = settings.workoutStyle === 'porEjercicio' ? 'porEjercicio' : 'circuito';
 }
 initState();
 
@@ -627,11 +653,24 @@ function regenerate(){
   state.routine = generateRoutine(state.equipment, state.muscleGroups, { maxStations: state.maxStations });
   render();
 }
+function adjustSets(i, delta){
+  const ex = state.routine[i];
+  if(!ex) return;
+  ex.sets = Math.min(6, Math.max(1, (ex.sets||1) + delta));
+  render();
+}
+function setWorkoutStyle(style){
+  state.workoutStyle = style;
+  saveSettings({ ...loadSettings(), workoutStyle: style });
+  render();
+}
 function backToEquip(){ state.screen='equip'; render(); }
 function backToMuscles(){ state.screen='muscles'; render(); }
 
 function startWorkout(){
   if(state.routine.length === 0) return;
+  state.plan = buildPlan(state.routine, state.workoutStyle);
+  if(state.plan.length === 0) return;
   state.screen = 'workout';
   state.step = 0;
   state.secondsLeft = state.workSeconds;
@@ -644,14 +683,14 @@ function startWorkout(){
   render();
 }
 
-// Cierra el segmento actual (estación de trabajo o descanso) y registra el tiempo REAL transcurrido,
+// Cierra el segmento actual (serie de trabajo o descanso) y registra el tiempo REAL transcurrido,
 // para que las calorías se calculen sobre duración real y no sobre los segundos nominales.
 function closeSegment(kind){
   if(!state.segmentStartedAt) return;
   const elapsed = Math.max(0, (Date.now() - state.segmentStartedAt) / 1000);
   if(kind === 'workout'){
-    const ex = state.routine[state.step];
-    if(ex) state.exerciseLog.push({ id: ex.id, group: ex.group, seconds: elapsed });
+    const entry = state.plan[state.step];
+    if(entry) state.exerciseLog.push({ id: entry.exercise.id, group: entry.exercise.group, seconds: elapsed });
   } else {
     state.restSecondsTotal += elapsed;
   }
@@ -662,7 +701,7 @@ function tick(){
   if(state.secondsLeft < 0){
     if(state.screen === 'workout'){
       closeSegment('workout');
-      if(state.step === state.routine.length-1){
+      if(state.step === state.plan.length-1){
         clearTimer();
         finishWorkout();
       } else {
@@ -683,7 +722,7 @@ function tick(){
 function skipStep(){
   if(state.screen === 'workout'){
     closeSegment('workout');
-    if(state.step === state.routine.length-1){ clearTimer(); finishWorkout(); }
+    if(state.step === state.plan.length-1){ clearTimer(); finishWorkout(); }
     else { state.screen='rest'; state.secondsLeft=REST; state.segmentStartedAt = Date.now(); }
   } else if(state.screen === 'rest'){
     closeSegment('rest');
@@ -696,7 +735,7 @@ function finishWorkout(){
   const completedAt = new Date().toISOString();
   const durationMinutes = state.startedAt
     ? Math.max(1, Math.round((Date.now()-state.startedAt)/60000))
-    : Math.round(state.routine.length*(state.workSeconds+REST)/60);
+    : Math.round(state.plan.length*(state.workSeconds+REST)/60);
   const groupCounts = {};
   state.routine.forEach(e=>{ groupCounts[e.group] = (groupCounts[e.group]||0)+1; });
   const esCardio = (groupCounts.cardio||0) >= state.routine.length/2;
@@ -706,8 +745,9 @@ function finishWorkout(){
     date: today,
     completedAt,
     exerciseIds: state.routine.map(e=>e.id),
-    exerciseNames: state.routine.map(e=>e.name),
+    exerciseNames: state.routine.map(e=>`${e.name} (${e.sets}×${e.reps})`),
     groups: [...new Set(state.routine.map(e=>e.group))],
+    workoutStyle: state.workoutStyle,
     durationMinutes,
     esCardio,
     calories,
@@ -871,19 +911,41 @@ function renderOverview(){
       <button class="btn-ghost btn-block" onclick="backToMuscles()">← Ajustar selección</button></div>
     `;
   }
-  const rows = state.routine.map(ex=>`
-    <div class="ex-row"><span>${ex.name}<br><span class="tag">${ex.group}</span></span><span class="reps">${ex.reps}</span></div>
+  const rows = state.routine.map((ex,i)=>`
+    <div class="ex-row">
+      <span>${ex.name}<br><span class="tag">${ex.group}</span></span>
+      <span class="sets-editor">
+        <button class="stepper" onclick="adjustSets(${i},-1)">−</button>
+        <span class="sets-val">${ex.sets}×${ex.reps}</span>
+        <button class="stepper" onclick="adjustSets(${i},1)">+</button>
+      </span>
+    </div>
   `).join('');
   const intensityBanner = state.intensityNote
     ? `<div class="card" style="border-color:var(--accent);"><p style="font-size:13px;color:var(--chalk-dim);margin:0;">🍏 ${state.intensityNote}</p></div>`
     : '';
+  const totalStations = buildPlan(state.routine, state.workoutStyle).length;
+  const styleCard = `
+    <div class="card">
+      <div class="eyebrow" style="margin-bottom:8px;">Estilo de entrenamiento</div>
+      <div class="style-toggle">
+        <button class="style-opt ${state.workoutStyle==='circuito'?'active':''}" onclick="setWorkoutStyle('circuito')">🔄 Circuito combinado</button>
+        <button class="style-opt ${state.workoutStyle==='porEjercicio'?'active':''}" onclick="setWorkoutStyle('porEjercicio')">📋 Por ejercicio</button>
+      </div>
+      <p style="color:var(--chalk-dim);font-size:12px;margin-top:8px;">
+        ${state.workoutStyle==='circuito'
+          ? 'Rota entre ejercicios por ronda: una serie de cada uno, y repite.'
+          : 'Completa todas las series de un ejercicio antes de pasar al siguiente.'}
+      </p>
+    </div>`;
   return `
     <header>
       <div class="eyebrow">Tu rutina de hoy</div>
-      <h1>${state.routine.length} ejercicios</h1>
-      <div class="sub">${state.workSeconds}s trabajo / 15s descanso por estación</div>
+      <h1>${state.routine.length} ejercicios · ${totalStations} series</h1>
+      <div class="sub">${state.workSeconds}s trabajo / 15s descanso por serie</div>
     </header>
     ${intensityBanner}
+    ${styleCard}
     <div class="card">${rows}</div>
     <button class="btn-primary btn-block" onclick="startWorkout()">Empezar entrenamiento</button>
     <div style="display:flex;gap:10px;margin-top:10px;">
@@ -895,7 +957,7 @@ function renderOverview(){
 
 function renderProgress(){
   let segs='';
-  for(let i=0;i<state.routine.length;i++){
+  for(let i=0;i<state.plan.length;i++){
     const doneCls = i<state.step ? 'done':'';
     let pct=0;
     if(i===state.step){ pct = state.screen==='workout' ? Math.round(((state.workSeconds-state.secondsLeft)/state.workSeconds)*100) : 100; }
@@ -905,17 +967,18 @@ function renderProgress(){
 }
 
 function renderWorkout(){
-  const ex = state.routine[state.step];
+  const entry = state.plan[state.step];
+  const ex = entry.exercise;
   return `
     <header>
       <div class="eyebrow">Entrenamiento</div>
-      <h1>Estación ${state.step+1} de ${state.routine.length}</h1>
+      <h1>Estación ${state.step+1} de ${state.plan.length}</h1>
     </header>
     ${renderProgress()}
     <div class="card">
       <div class="stage-label"><span>En curso</span><span class="round">${ex.group}</span></div>
       <div class="ex-name">${ex.name}</div>
-      <div class="ex-reps-big">${ex.reps}</div>
+      <div class="ex-reps-big">Serie ${entry.setNumber} de ${entry.totalSets} · ${ex.reps}</div>
       ${renderIllustration(ex)}
       <ul class="cues"><li>${ex.desc}</li></ul>
       <div class="timer">${fmt(state.secondsLeft<0?0:state.secondsLeft)}</div>
@@ -925,13 +988,15 @@ function renderWorkout(){
 }
 
 function renderRest(){
-  const next = state.step < state.routine.length-1 ? state.routine[state.step+1] : null;
+  const nextEntry = state.step < state.plan.length-1 ? state.plan[state.step+1] : null;
   return `
     <header><div class="eyebrow">Entrenamiento</div><h1>Descanso</h1></header>
     ${renderProgress()}
     <div class="card rest-screen">
       <div class="big">${fmt(state.secondsLeft<0?0:state.secondsLeft)}</div>
-      ${next ? `<div class="next-label">Sigue</div><div class="next-name">${next.name}</div>` : `<div class="next-label">Última estación completada</div>`}
+      ${nextEntry
+        ? `<div class="next-label">Sigue · Serie ${nextEntry.setNumber} de ${nextEntry.totalSets}</div><div class="next-name">${nextEntry.exercise.name}</div>`
+        : `<div class="next-label">Última estación completada</div>`}
       <button class="btn-ghost btn-block" style="margin-top:14px;" onclick="skipStep()">Saltar descanso</button>
     </div>
   `;
