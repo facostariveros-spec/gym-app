@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rutina-gym-v1';
+const CACHE_NAME = 'rutina-gym-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -27,20 +27,18 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Cache-first strategy: works fully offline once installed
+// Network-first strategy: siempre trae la versión más reciente cuando hay
+// internet, y solo cae a la caché (offline) si la red falla.
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   if (event.request.url.includes('googleapis.com') || event.request.url.includes('accounts.google.com')) return;
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-          return response;
-        })
-        .catch(() => caches.match('./index.html'));
-    })
+    fetch(event.request)
+      .then((response) => {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        return response;
+      })
+      .catch(() => caches.match(event.request).then((cached) => cached || caches.match('./index.html')))
   );
 });
