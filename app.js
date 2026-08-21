@@ -504,7 +504,14 @@ function buildHealthLogUrl(payload){
 function openHealthLogShortcut(){
   const s = state.lastSession;
   if(!s) return;
-  const payload = { durationMinutes: s.durationMinutes, esCardio: s.esCardio, fecha: s.date };
+  const restingHR = state.health ? state.health.restingHR : null;
+  const payload = {
+    durationMinutes: s.durationMinutes,
+    esCardio: s.esCardio,
+    fecha: s.date,
+    baselineCalories: s.calories || 0,
+    restingHR: restingHR || 0,
+  };
   window.location.href = buildHealthLogUrl(payload);
 }
 function computeIntensity(health){
@@ -542,9 +549,43 @@ function handleShortcutCallback(){
       }catch(e){ console.error('No se pudo leer el resultado del Shortcut', e); }
     }
   } else if(xcb === 'log_success'){
+    restoreLastSessionForDone();
+    const raw = params.get('result');
+    if(raw && state.lastSession){
+      try{
+        const data = JSON.parse(raw);
+        let cal = typeof data.calorias === 'number' ? data.calorias : parseFloat(data.calorias);
+        if(!isNaN(cal) && cal > 0){
+          // límite de seguridad ante datos de FC atípicos: no dejar que se dispare fuera de un rango razonable
+          const baseline = state.lastSession.calories || cal;
+          cal = Math.round(Math.min(baseline * 3, Math.max(baseline * 0.5, cal)));
+          state.lastSession.calories = cal;
+          updateLastHistorySessionCalories(cal);
+          autoSyncIfConnected();
+        }
+      }catch(e){ console.error('No se pudo leer las calorías ajustadas por FC', e); }
+    }
     state.healthLogStatus = 'ok';
   }
   history.replaceState(null, '', appBaseUrl());
+}
+function restoreLastSessionForDone(){
+  const h = loadHistory();
+  if(h.length && h[0].completedAt){
+    const ageMin = (Date.now() - new Date(h[0].completedAt).getTime()) / 60000;
+    if(ageMin < 120){ // solo si es una sesión reciente, evita saltar al "done" de algo viejo
+      state.lastSession = h[0];
+      state.screen = 'done';
+      state.tab = 'rutina';
+    }
+  }
+}
+function updateLastHistorySessionCalories(cal){
+  const h = loadHistory();
+  if(h.length && state.lastSession && h[0].completedAt === state.lastSession.completedAt){
+    h[0].calories = cal;
+    try{ localStorage.setItem(LS_HISTORY, JSON.stringify(h)); }catch(e){}
+  }
 }
 
 function clearTimer(){ if(state.timerId){ clearInterval(state.timerId); state.timerId=null; } }
@@ -906,7 +947,7 @@ function renderDone(){
     ? `<div class="card" style="text-align:center;">
         <div class="eyebrow" style="margin-bottom:4px;">Estimado</div>
         <div style="font-size:32px;font-weight:800;color:var(--accent);">🔥 ${calories} kcal</div>
-        <p style="color:var(--chalk-dim);font-size:11.5px;margin-top:4px;">Estimación aproximada (MET estándar × tu peso × duración real)</p>
+        <p style="color:var(--chalk-dim);font-size:11.5px;margin-top:4px;">Estimación aproximada (MET estándar × tu peso × duración real). Toca "Registrar en Apple Health" para afinarla con tu frecuencia cardíaca real si usaste Apple Watch.</p>
       </div>`
     : `<div class="card" style="text-align:center;">
         <p style="color:var(--chalk-dim);font-size:13px;margin:0 0 10px;">Agrega tu peso en Ajustes para ver las calorías estimadas de esta rutina.</p>
