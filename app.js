@@ -262,6 +262,7 @@ function deleteHistorySession(key){
   const h = loadHistory().filter(s => sessionKey(s) !== key);
   try{ localStorage.setItem(LS_HISTORY, JSON.stringify(h)); }catch(e){}
   state.confirmDeleteKey = null;
+  state.dashboardStatus = 'idle'; state.dashboard = null; // el historial cambió, recalcular al volver a entrar
   if(typeof DriveSync !== 'undefined' && DriveSync.connected){
     state.syncStatus = 'syncing'; render();
     DriveSync.connect(async ()=>{
@@ -359,6 +360,35 @@ function mergeHistories(localHist, driveHist){
   (driveHist||[]).forEach(s=> map.set(sessionKey(s), s));
   (localHist||[]).forEach(s=> map.set(sessionKey(s), s)); // local gana en empate
   return [...map.values()].sort((a,b)=> (sessionTimestamp(b)||0) - (sessionTimestamp(a)||0));
+}
+// Total de sesiones, sesiones de los últimos 7 días, y racha de días consecutivos hasta hoy.
+// Compartida entre Historial (histórico local) y Dashboard (histórico local+Drive).
+function computeHistoryStats(history){
+  const totalSessions = history.length;
+  const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate()-7);
+  const thisWeek = history.filter(h => new Date(h.date) >= weekAgo).length;
+
+  let streak = 0;
+  const daysSet = new Set(history.map(h=>h.date));
+  let cursor = new Date();
+  while(true){
+    const key = cursor.toISOString().slice(0,10);
+    if(daysSet.has(key)){ streak++; cursor.setDate(cursor.getDate()-1); }
+    else break;
+  }
+  return { totalSessions, thisWeek, streak };
+}
+// Para cada grupo muscular, cuántas sesiones lo trabajaron en los últimos `days` días.
+function computeGroupWindowCounts(history, days){
+  const cutoff = Date.now() - days*24*3600000;
+  const counts = {};
+  MUSCLE_GROUPS.forEach(m=>{
+    counts[m.id] = history.filter(s=>{
+      const ts = sessionTimestamp(s);
+      return ts != null && ts >= cutoff && sessionGroups(s).includes(m.id);
+    }).length;
+  });
+  return counts;
 }
 function analyzeForRecommendation(history){
   if(!history || history.length < 4) return null; // no hay suficiente histórico todavía
@@ -485,6 +515,9 @@ let state = {
   weightSaveStatus: 'idle', // idle | ok | error
   confirmDeleteKey: null,   // sessionKey() de la sesión de historial pendiente de confirmar borrado
   confirmEndEarly: false,   // true mientras se muestra el aviso de "¿terminar antes de tiempo?"
+  dashboardStatus: 'idle',  // idle | loading | ready
+  dashboardWindow: '7',     // '7' | '30' — ventana del gráfico de barras
+  dashboard: null,          // { source, updatedAt, stats, windowCounts, daysSince, neglected }
   lastSession: null,
   healthLogStatus: 'idle',  // idle | ok
   health: null,             // { sleepHours, restingHR, syncedAt }
@@ -528,6 +561,7 @@ function restoreFromDrive(){
         if(data.settings) saveSettings(data.settings);
         if(data.history) localStorage.setItem(LS_HISTORY, JSON.stringify(data.history));
         initState();
+        state.dashboardStatus = 'idle'; state.dashboard = null; // el historial cambió, recalcular al volver a entrar
       }
       state.syncStatus = 'ok';
     }catch(e){ console.error(e); state.syncStatus = 'error'; }
@@ -562,6 +596,47 @@ function fetchDriveRecommendation(){
 function useRecommendation(){
   if(!state.driveRecommendation) return;
   state.muscleGroups = [...state.driveRecommendation.groups];
+  render();
+}
+
+function buildDashboard(history, source){
+  return {
+    source,
+    updatedAt: new Date().toISOString(),
+    stats: computeHistoryStats(history),
+    windowCounts: { '7': computeGroupWindowCounts(history, 7), '30': computeGroupWindowCounts(history, 30) },
+    daysSince: Object.fromEntries(MUSCLE_GROUPS.map(m=>{
+      const h = hoursSinceGroupTrained(m.id, history);
+      return [m.id, h == null ? null : Math.floor(h/24)];
+    })),
+    neglected: analyzeForRecommendation(history),
+  };
+}
+function fetchDashboardData(){
+  if(state.dashboardStatus === 'loading' || state.dashboardStatus === 'ready') return; // ya en curso o ya lista
+  state.dashboardStatus = 'loading';
+  if(typeof DriveSync !== 'undefined' && DriveSync.connected){
+    DriveSync.connect(async ()=>{
+      try{
+        const data = await DriveSync.download();
+        const driveHist = (data && data.history) || [];
+        const merged = mergeHistories(loadHistory(), driveHist);
+        state.dashboard = buildDashboard(merged, 'local+drive');
+      }catch(e){
+        console.error('No se pudo traer historial de Drive para el dashboard', e);
+        state.dashboard = buildDashboard(loadHistory(), 'local');
+      }
+      state.dashboardStatus = 'ready';
+      render();
+    });
+  } else {
+    state.dashboard = buildDashboard(loadHistory(), 'local');
+    state.dashboardStatus = 'ready';
+    render();
+  }
+}
+function setDashboardWindow(w){
+  state.dashboardWindow = w;
   render();
 }
 
@@ -954,6 +1029,7 @@ function finishWorkout(){
   };
   saveHistorySession(session);
   autoSyncIfConnected();
+  state.dashboardStatus = 'idle'; state.dashboard = null; // el historial cambió, recalcular al volver a entrar
   state.lastSession = session;
   state.healthLogStatus = 'idle';
   state.screen = 'done';
@@ -974,6 +1050,7 @@ function newRoutine(){
 }
 function goTab(tab){
   state.tab = tab;
+  if(tab === 'dashboard') fetchDashboardData();
   render();
 }
 function saveWeight(){
@@ -1003,6 +1080,9 @@ function renderTabbar(){
       <button class="tab ${state.tab==='historial'?'active':''}" onclick="goTab('historial')">
         <span class="ic">📅</span>Historial
       </button>
+      <button class="tab ${state.tab==='dashboard'?'active':''}" onclick="goTab('dashboard')">
+        <span class="ic">📊</span>Dashboard
+      </button>
       <button class="tab ${state.tab==='nube'?'active':''}" onclick="goTab('nube')">
         <span class="ic">☁️</span>Nube
       </button>
@@ -1014,6 +1094,7 @@ function renderTabbar(){
 
 function renderContent(){
   if(state.tab === 'historial') return renderHistorial();
+  if(state.tab === 'dashboard') return renderDashboard();
   if(state.tab === 'nube') return renderNube();
   if(state.tab === 'ajustes') return renderAjustes();
   // tab rutina
@@ -1342,21 +1423,87 @@ function renderDone(){
   `;
 }
 
+const DASHBOARD_STALE_DAYS = 6; // días sin trabajar un grupo para marcarlo en alerta
+
+function renderDashboard(){
+  if(state.dashboardStatus !== 'ready' || !state.dashboard){
+    return `
+      <header><div class="eyebrow">Análisis</div><h1>Dashboard</h1></header>
+      <div class="card"><p style="color:var(--chalk-dim);font-size:13px;margin:0;">📊 Calculando tu resumen...</p></div>
+    `;
+  }
+  const d = state.dashboard;
+  const sourceLabel = d.source === 'local+drive' ? 'Local + Drive' : 'Solo este teléfono';
+
+  const statsCard = `
+    <div class="stat-row">
+      <div class="stat"><div class="num">${d.stats.totalSessions}</div><div class="lbl">Total</div></div>
+      <div class="stat"><div class="num">${d.stats.thisWeek}</div><div class="lbl">Esta semana</div></div>
+      <div class="stat"><div class="num">${d.stats.streak}</div><div class="lbl">Racha (días)</div></div>
+    </div>`;
+
+  const counts = d.windowCounts[state.dashboardWindow];
+  const maxCount = Math.max(1, ...MUSCLE_GROUPS.map(m=>counts[m.id]||0));
+  const barsHtml = MUSCLE_GROUPS.map(m=>{
+    const c = counts[m.id] || 0;
+    const pct = Math.round((c / maxCount) * 100);
+    return `
+      <div class="bar-row">
+        <span class="bar-label">${m.icon} ${m.label}</span>
+        <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+        <span class="bar-count">${c}</span>
+      </div>`;
+  }).join('');
+  const volumeCard = `
+    <div class="card">
+      <div class="eyebrow" style="margin-bottom:8px;">Volumen por grupo</div>
+      <div class="style-toggle" style="margin-bottom:12px;">
+        <button class="style-opt ${state.dashboardWindow==='7'?'active':''}" onclick="setDashboardWindow('7')">7 días</button>
+        <button class="style-opt ${state.dashboardWindow==='30'?'active':''}" onclick="setDashboardWindow('30')">30 días</button>
+      </div>
+      ${barsHtml}
+    </div>`;
+
+  const daysSinceItems = MUSCLE_GROUPS.map(m=>{
+    const days = d.daysSince[m.id];
+    const flag = days != null && days >= DASHBOARD_STALE_DAYS;
+    const valueText = days == null ? 'nunca' : `${flag?'⚠️ ':''}${days}d`;
+    return `
+      <div class="equip-item" style="${flag ? 'border-color:var(--bad);' : ''}">
+        <span class="icon">${m.icon}</span><span class="label">${m.label}</span>
+        <div style="font-size:15px;font-weight:800;margin-top:4px;color:${flag?'var(--bad)':'var(--accent)'};">${valueText}</div>
+      </div>`;
+  }).join('');
+  const daysSinceCard = `
+    <div class="card">
+      <div class="eyebrow" style="margin-bottom:8px;">Días sin trabajar cada grupo</div>
+      <div class="equip-grid" style="margin:0;">${daysSinceItems}</div>
+    </div>`;
+
+  const neglectedCard = d.neglected
+    ? `<div class="card" style="border-color:var(--accent);padding:14px;">
+        <p style="font-size:11.5px;letter-spacing:1px;text-transform:uppercase;color:var(--chalk-dim);margin:0 0 8px;">📊 Deberías trabajar más</p>
+        <p style="font-size:17px;font-weight:800;margin:0 0 4px;">${d.neglected.labels.join(' y ')}</p>
+        <p style="font-size:12.5px;color:var(--chalk-dim);margin:0;">${d.neglected.detail}</p>
+      </div>`
+    : `<div class="card"><p style="color:var(--chalk-dim);font-size:13px;margin:0;">Aún no hay suficiente historial para esta sección (necesitas al menos 4 sesiones guardadas).</p></div>`;
+
+  return `
+    <header>
+      <div class="eyebrow">Análisis</div>
+      <h1>Dashboard</h1>
+      <div class="sub">${sourceLabel} · actualizado ${timeAgo(d.updatedAt)}</div>
+    </header>
+    ${statsCard}
+    ${volumeCard}
+    ${daysSinceCard}
+    ${neglectedCard}
+  `;
+}
+
 function renderHistorial(){
   const history = loadHistory();
-  const totalSessions = history.length;
-  const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate()-7);
-  const thisWeek = history.filter(h => new Date(h.date) >= weekAgo).length;
-
-  // racha: días consecutivos con sesión hasta hoy
-  let streak = 0;
-  const daysSet = new Set(history.map(h=>h.date));
-  let cursor = new Date();
-  while(true){
-    const key = cursor.toISOString().slice(0,10);
-    if(daysSet.has(key)){ streak++; cursor.setDate(cursor.getDate()-1); }
-    else break;
-  }
+  const { totalSessions, thisWeek, streak } = computeHistoryStats(history);
 
   const syncMsg = {
     idle: '', syncing: '⏳ Borrando en Drive...',

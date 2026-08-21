@@ -171,6 +171,13 @@ button:active{ transform: scale(0.98); }
 .del-no{ background:none; border:1px solid var(--line); color: var(--chalk-dim); border-radius:8px; font-size:11px; font-weight:700; padding:5px 8px; }
 .empty-state{ text-align:center; color: var(--chalk-dim); padding: 30px 10px; font-size:13.5px; }
 
+/* dashboard: barras horizontales de volumen por grupo */
+.bar-row{ display:flex; align-items:center; gap:8px; padding:6px 0; }
+.bar-label{ width:88px; flex-shrink:0; font-size:12px; color: var(--chalk-dim); }
+.bar-track{ flex:1; height:8px; border-radius:4px; background: var(--line); overflow:hidden; }
+.bar-fill{ height:100%; background: var(--accent); border-radius:4px; }
+.bar-count{ width:18px; flex-shrink:0; text-align:right; font-size:12px; font-weight:700; color: var(--chalk); }
+
 /* bottom nav */
 .tabbar{
   position: fixed; bottom:0; left:0; right:0;
