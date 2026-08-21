@@ -412,16 +412,27 @@ function openHealthSyncShortcut(){
     + `&x-success=${successUrl}&x-cancel=${cancelUrl}`;
   window.location.href = url;
 }
-function openHealthLogShortcut(){
-  const s = state.lastSession;
-  if(!s) return;
-  const payload = { durationMinutes: s.durationMinutes, esCardio: s.esCardio, fecha: s.date };
+function buildHealthLogUrl(payload){
   const text = encodeURIComponent(JSON.stringify(payload));
   const successUrl = encodeURIComponent(appBaseUrl() + '?xcb=log_success');
   const cancelUrl  = encodeURIComponent(appBaseUrl() + '?xcb=log_cancel');
   const url = `shortcuts://x-callback-url/run-shortcut?name=${encodeURIComponent(HEALTH_LOG_SHORTCUT)}`
     + `&input=text&text=${text}&x-success=${successUrl}&x-cancel=${cancelUrl}`;
-  window.location.href = url;
+  console.log('[Apple Health] JSON enviado:', JSON.stringify(payload));
+  console.log('[Apple Health] URL completa:', url);
+  return url;
+}
+function openHealthLogShortcut(){
+  const s = state.lastSession;
+  if(!s) return;
+  const payload = { durationMinutes: s.durationMinutes, esCardio: s.esCardio, fecha: s.date };
+  window.location.href = buildHealthLogUrl(payload);
+}
+function testHealthLogShortcut(){
+  // Botón temporal de prueba (tab Historial): manda datos fijos sin necesidad
+  // de completar una rutina real. Quitar cuando el Shortcut ya funcione bien.
+  const payload = { durationMinutes: 20, esCardio: false, fecha: new Date().toISOString().slice(0,10) };
+  window.location.href = buildHealthLogUrl(payload);
 }
 function computeIntensity(health){
   if(!health) return { workSeconds: WORK, note: '' };
@@ -785,6 +796,11 @@ function renderHistorial(){
       <div class="stat"><div class="num">${streak}</div><div class="lbl">Racha (días)</div></div>
     </div>
     <div class="card">${sessionsHtml}</div>
+    <div class="card">
+      <div class="eyebrow" style="margin-bottom:8px;">🧪 Prueba de Apple Health (temporal)</div>
+      <p style="color:var(--chalk-dim);font-size:12.5px;margin:0 0 10px;">Manda datos de ejemplo (20 min, no-cardio) al Shortcut "Rutina Gym - Registrar Entrenamiento" sin completar una rutina real. Revisa la consola del navegador para ver el JSON/URL exactos que se envían.</p>
+      <button class="btn-ghost btn-block" onclick="testHealthLogShortcut()">Probar "Registrar en Apple Health"</button>
+    </div>
   `;
 }
 
