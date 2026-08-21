@@ -100,6 +100,21 @@ button:active{ transform: scale(0.98); }
 .stage-label .round{ color: var(--accent); font-weight:700; }
 .ex-name{ font-size: 22px; font-weight: 800; margin: 0 0 2px; }
 .ex-reps-big{ color: var(--accent); font-weight:700; font-size: 14px; margin-bottom: 14px; }
+
+/* ilustración inicio/final (foto real o respaldo SVG) */
+.photo-pair{
+  display:flex; align-items:center; gap:2px; background: var(--plate);
+  border-radius:12px; padding:10px 8px; border:1px solid var(--line); margin-bottom:14px;
+}
+.photo-frame{ flex:1; display:flex; flex-direction:column; align-items:center; min-width:0; }
+.photo-frame img, .photo-frame svg{
+  width:100%; aspect-ratio:4/3; object-fit:cover; border-radius:8px; display:block;
+}
+.photo-frame.final img, .photo-frame.final svg{ box-shadow: 0 0 0 2px var(--accent); border-radius:8px; }
+.pose-tag{ font-size:10.5px; letter-spacing:1.2px; text-transform:uppercase; color: var(--chalk-dim); margin-top:6px; font-weight:700; }
+.pose-tag.final{ color: var(--accent); }
+.illus-arrow{ width:24px; flex-shrink:0; display:flex; align-items:center; justify-content:center; }
+.illus-arrow svg{ width:20px; height:60px; }
 .cues{ list-style:none; margin:0 0 14px; padding:0; }
 .cues li{
   font-size: 13.5px; padding: 7px 0 7px 20px; position:relative;

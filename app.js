@@ -31,124 +31,82 @@ const MUSCLE_GROUPS = [
   { id: 'cardio',   label: 'Cardio',         icon: '🚴' },
 ];
 
-/* ---------- Plantillas de ilustración (poses reutilizables) ---------- */
-const POSES = {
-  squat: (a,b)=>`
-    <svg width="64" height="80" viewBox="0 0 70 90"><circle cx="35" cy="14" r="7" fill="${a}"/>
-    <line x1="35" y1="21" x2="35" y2="50" stroke="${a}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="15" y1="26" x2="55" y2="26" stroke="${a}" stroke-width="4" stroke-linecap="round"/>
-    <line x1="35" y1="50" x2="22" y2="80" stroke="${a}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="35" y1="50" x2="48" y2="80" stroke="${a}" stroke-width="5" stroke-linecap="round"/></svg>
-    <svg width="64" height="80" viewBox="0 0 70 90"><circle cx="35" cy="32" r="7" fill="${b}"/>
-    <line x1="35" y1="39" x2="38" y2="60" stroke="${b}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="17" y1="44" x2="57" y2="44" stroke="${b}" stroke-width="4" stroke-linecap="round"/>
-    <line x1="38" y1="60" x2="20" y2="62" stroke="${b}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="20" y1="62" x2="24" y2="82" stroke="${b}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="38" y1="60" x2="55" y2="66" stroke="${b}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="55" y1="66" x2="50" y2="84" stroke="${b}" stroke-width="5" stroke-linecap="round"/></svg>`,
-  hinge: (a,b)=>`
-    <svg width="64" height="80" viewBox="0 0 70 90"><circle cx="35" cy="14" r="7" fill="${a}"/>
-    <line x1="35" y1="21" x2="35" y2="55" stroke="${a}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="35" y1="55" x2="24" y2="80" stroke="${a}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="35" y1="55" x2="46" y2="80" stroke="${a}" stroke-width="5" stroke-linecap="round"/></svg>
-    <svg width="64" height="80" viewBox="0 0 70 90"><circle cx="20" cy="30" r="7" fill="${b}"/>
-    <line x1="22" y1="36" x2="40" y2="52" stroke="${b}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="40" y1="52" x2="30" y2="78" stroke="${b}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="40" y1="52" x2="50" y2="78" stroke="${b}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="22" y1="36" x2="10" y2="55" stroke="${b}" stroke-width="4" stroke-linecap="round"/></svg>`,
-  press_overhead: (a,b)=>`
-    <svg width="64" height="80" viewBox="0 0 70 90"><circle cx="35" cy="20" r="7" fill="${a}"/>
-    <line x1="35" y1="27" x2="35" y2="60" stroke="${a}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="35" y1="34" x2="18" y2="42" stroke="${a}" stroke-width="4" stroke-linecap="round"/>
-    <line x1="35" y1="34" x2="52" y2="42" stroke="${a}" stroke-width="4" stroke-linecap="round"/>
-    <line x1="35" y1="60" x2="26" y2="85" stroke="${a}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="35" y1="60" x2="44" y2="85" stroke="${a}" stroke-width="5" stroke-linecap="round"/></svg>
-    <svg width="64" height="80" viewBox="0 0 70 90"><circle cx="35" cy="20" r="7" fill="${b}"/>
-    <line x1="35" y1="27" x2="35" y2="60" stroke="${b}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="35" y1="30" x2="20" y2="8" stroke="${b}" stroke-width="4" stroke-linecap="round"/>
-    <line x1="35" y1="30" x2="50" y2="8" stroke="${b}" stroke-width="4" stroke-linecap="round"/>
-    <line x1="35" y1="60" x2="26" y2="85" stroke="${b}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="35" y1="60" x2="44" y2="85" stroke="${b}" stroke-width="5" stroke-linecap="round"/></svg>`,
+/* ---------- Ilustración: fotos reales (free-exercise-db, dominio público) ---------- */
+// Cada ejercicio con foto tiene exercises/<id>/0.jpg (inicio) y 1.jpg (final).
+// Los 3 ejercicios sin match confiable en la base de fotos usan el dibujo SVG de respaldo.
+const NO_PHOTO = new Set(['band_row', 'band_chest_press', 'burpee']);
+
+// Dirección del movimiento para la flecha, por ejercicio (solo los que tienen foto).
+const EX_DIRECTION = {
+  squat_barbell:'down', rdl_barbell:'down', ohp_barbell:'up', row_barbell:'pull',
+  shoulder_press_db:'up', curl_db:'up', bench_press_db:'up', row_one_arm_db:'pull',
+  lunge_db:'down', rdl_db:'down', leg_curl_machine:'pull', leg_ext_machine:'up',
+  cable_row:'pull', lat_pulldown:'pull', cable_chest_press:'push', cable_curl:'up',
+  cable_tricep:'down', face_pull:'pull', kb_swing:'up', goblet_squat:'down',
+  pull_up:'up', pushup:'up', bw_squat:'down', bw_lunge:'down',
+  glute_bridge:'up', superman:'up',
+  // elliptical, plank, mountain_climber: sin flecha (movimiento cíclico o sostenido)
+};
+
+function arrowIcon(dir){
+  const c = 'var(--accent)';
+  if(dir==='down') return `<svg viewBox="0 0 22 64"><path d="M8 4 C 18 18, 18 46, 10 60" stroke="${c}" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M3 51 L10 62 L17 50" stroke="${c}" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  if(dir==='up') return `<svg viewBox="0 0 22 64"><path d="M10 60 C 18 46, 18 18, 8 4" stroke="${c}" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M17 14 L10 2 L3 14" stroke="${c}" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  if(dir==='push') return `<svg viewBox="0 0 22 64"><path d="M4 14 C 16 24, 16 40, 4 50" stroke="${c}" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M8 42 L18 54 L8 60" stroke="${c}" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  return `<svg viewBox="0 0 22 64"><path d="M18 14 C 6 24, 6 40, 18 50" stroke="${c}" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M14 42 L4 54 L14 60" stroke="${c}" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`; // pull
+}
+
+function renderIllustration(ex){
+  const dir = EX_DIRECTION[ex.id];
+  const arrow = dir ? `<div class="illus-arrow">${arrowIcon(dir)}</div>` : `<div class="illus-arrow"></div>`;
+  let frameA, frameB;
+  if(NO_PHOTO.has(ex.id)){
+    const svgs = FALLBACK_POSES[ex.pose]('#eae6dd', '#ffb020');
+    const parts = svgs.trim().split('</svg>').filter(s=>s.trim()).map(s=>s+'</svg>');
+    frameA = parts[0] || ''; frameB = parts[1] || '';
+  } else {
+    frameA = `<img src="exercises/${ex.id}/0.jpg" alt="${ex.name} - inicio" loading="lazy">`;
+    frameB = `<img src="exercises/${ex.id}/1.jpg" alt="${ex.name} - final" loading="lazy">`;
+  }
+  return `
+    <div class="photo-pair">
+      <div class="photo-frame">${frameA}<div class="pose-tag">Inicio</div></div>
+      ${arrow}
+      <div class="photo-frame final">${frameB}<div class="pose-tag final">Final</div></div>
+    </div>`;
+}
+
+/* ---------- Respaldo SVG: solo para ejercicios sin foto confiable disponible ---------- */
+const FALLBACK_POSES = {
   press_horizontal: (a,b)=>`
-    <svg width="64" height="80" viewBox="0 0 70 90"><ellipse cx="35" cy="55" rx="28" ry="6" fill="${a}" opacity="0.4"/>
+    <svg viewBox="0 0 70 90"><ellipse cx="35" cy="55" rx="28" ry="6" fill="${a}" opacity="0.4"/>
     <circle cx="35" cy="30" r="7" fill="${a}"/>
     <line x1="35" y1="37" x2="35" y2="55" stroke="${a}" stroke-width="5" stroke-linecap="round"/>
     <line x1="35" y1="40" x2="15" y2="32" stroke="${a}" stroke-width="4" stroke-linecap="round"/>
     <line x1="35" y1="40" x2="55" y2="32" stroke="${a}" stroke-width="4" stroke-linecap="round"/></svg>
-    <svg width="64" height="80" viewBox="0 0 70 90"><ellipse cx="35" cy="55" rx="28" ry="6" fill="${b}" opacity="0.4"/>
+    <svg viewBox="0 0 70 90"><ellipse cx="35" cy="55" rx="28" ry="6" fill="${b}" opacity="0.4"/>
     <circle cx="35" cy="30" r="7" fill="${b}"/>
     <line x1="35" y1="37" x2="35" y2="55" stroke="${b}" stroke-width="5" stroke-linecap="round"/>
     <line x1="35" y1="42" x2="20" y2="55" stroke="${b}" stroke-width="4" stroke-linecap="round"/>
     <line x1="35" y1="42" x2="50" y2="55" stroke="${b}" stroke-width="4" stroke-linecap="round"/></svg>`,
-  pull_vertical: (a,b)=>`
-    <svg width="64" height="80" viewBox="0 0 70 90"><line x1="10" y1="10" x2="60" y2="10" stroke="${a}" stroke-width="4"/>
-    <circle cx="35" cy="24" r="7" fill="${a}"/>
-    <line x1="35" y1="31" x2="35" y2="58" stroke="${a}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="35" y1="33" x2="18" y2="12" stroke="${a}" stroke-width="4" stroke-linecap="round"/>
-    <line x1="35" y1="33" x2="52" y2="12" stroke="${a}" stroke-width="4" stroke-linecap="round"/></svg>
-    <svg width="64" height="80" viewBox="0 0 70 90"><line x1="10" y1="10" x2="60" y2="10" stroke="${b}" stroke-width="4"/>
-    <circle cx="35" cy="34" r="7" fill="${b}"/>
-    <line x1="35" y1="41" x2="35" y2="64" stroke="${b}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="35" y1="38" x2="20" y2="16" stroke="${b}" stroke-width="4" stroke-linecap="round"/>
-    <line x1="35" y1="38" x2="50" y2="16" stroke="${b}" stroke-width="4" stroke-linecap="round"/></svg>`,
   row: (a,b)=>`
-    <svg width="64" height="80" viewBox="0 0 70 90"><circle cx="38" cy="18" r="7" fill="${a}"/>
+    <svg viewBox="0 0 70 90"><circle cx="38" cy="18" r="7" fill="${a}"/>
     <line x1="38" y1="25" x2="38" y2="55" stroke="${a}" stroke-width="5" stroke-linecap="round"/>
     <line x1="38" y1="30" x2="55" y2="55" stroke="${a}" stroke-width="4" stroke-linecap="round"/>
     <line x1="38" y1="55" x2="30" y2="82" stroke="${a}" stroke-width="5" stroke-linecap="round"/>
     <line x1="38" y1="55" x2="46" y2="82" stroke="${a}" stroke-width="5" stroke-linecap="round"/></svg>
-    <svg width="64" height="80" viewBox="0 0 70 90"><circle cx="38" cy="18" r="7" fill="${b}"/>
+    <svg viewBox="0 0 70 90"><circle cx="38" cy="18" r="7" fill="${b}"/>
     <line x1="38" y1="25" x2="38" y2="55" stroke="${b}" stroke-width="5" stroke-linecap="round"/>
     <line x1="38" y1="30" x2="18" y2="34" stroke="${b}" stroke-width="4" stroke-linecap="round"/>
     <line x1="38" y1="55" x2="30" y2="82" stroke="${b}" stroke-width="5" stroke-linecap="round"/>
     <line x1="38" y1="55" x2="46" y2="82" stroke="${b}" stroke-width="5" stroke-linecap="round"/></svg>`,
-  curl: (a,b)=>`
-    <svg width="64" height="80" viewBox="0 0 70 90"><circle cx="35" cy="18" r="7" fill="${a}"/>
-    <line x1="35" y1="25" x2="35" y2="55" stroke="${a}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="35" y1="32" x2="50" y2="55" stroke="${a}" stroke-width="4" stroke-linecap="round"/>
-    <line x1="35" y1="55" x2="27" y2="82" stroke="${a}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="35" y1="55" x2="43" y2="82" stroke="${a}" stroke-width="5" stroke-linecap="round"/></svg>
-    <svg width="64" height="80" viewBox="0 0 70 90"><circle cx="35" cy="18" r="7" fill="${b}"/>
-    <line x1="35" y1="25" x2="35" y2="55" stroke="${b}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="35" y1="32" x2="48" y2="20" stroke="${b}" stroke-width="4" stroke-linecap="round"/>
-    <line x1="35" y1="55" x2="27" y2="82" stroke="${b}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="35" y1="55" x2="43" y2="82" stroke="${b}" stroke-width="5" stroke-linecap="round"/></svg>`,
-  extension: (a,b)=>`
-    <svg width="64" height="80" viewBox="0 0 70 90"><rect x="8" y="18" width="10" height="50" rx="2" fill="${a}" opacity="0.4"/>
-    <circle cx="35" cy="20" r="6" fill="${a}"/>
-    <line x1="35" y1="26" x2="32" y2="48" stroke="${a}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="32" y1="48" x2="55" y2="48" stroke="${a}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="55" y1="48" x2="58" y2="70" stroke="${a}" stroke-width="5" stroke-linecap="round"/></svg>
-    <svg width="64" height="80" viewBox="0 0 70 90"><rect x="8" y="18" width="10" height="50" rx="2" fill="${b}" opacity="0.4"/>
-    <circle cx="35" cy="20" r="6" fill="${b}"/>
-    <line x1="35" y1="26" x2="32" y2="48" stroke="${b}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="32" y1="48" x2="52" y2="50" stroke="${b}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="52" y1="50" x2="60" y2="32" stroke="${b}" stroke-width="5" stroke-linecap="round"/></svg>`,
-  plank: (a,b)=>`
-    <svg width="64" height="80" viewBox="0 0 70 90"><circle cx="14" cy="40" r="7" fill="${a}"/>
-    <line x1="20" y1="42" x2="60" y2="48" stroke="${a}" stroke-width="6" stroke-linecap="round"/>
-    <line x1="20" y1="42" x2="14" y2="60" stroke="${a}" stroke-width="4" stroke-linecap="round"/>
-    <line x1="60" y1="48" x2="60" y2="65" stroke="${a}" stroke-width="4" stroke-linecap="round"/></svg>
-    <svg width="64" height="80" viewBox="0 0 70 90"><circle cx="14" cy="30" r="7" fill="${b}"/>
-    <line x1="18" y1="34" x2="55" y2="55" stroke="${b}" stroke-width="6" stroke-linecap="round"/>
-    <line x1="18" y1="34" x2="12" y2="55" stroke="${b}" stroke-width="4" stroke-linecap="round"/>
-    <line x1="55" y1="55" x2="58" y2="70" stroke="${b}" stroke-width="4" stroke-linecap="round"/></svg>`,
-  core_dynamic: (a,b)=>`
-    <svg width="64" height="80" viewBox="0 0 70 90"><circle cx="35" cy="16" r="7" fill="${a}"/>
-    <line x1="35" y1="23" x2="35" y2="50" stroke="${a}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="35" y1="50" x2="20" y2="45" stroke="${a}" stroke-width="4" stroke-linecap="round"/>
-    <line x1="35" y1="50" x2="50" y2="70" stroke="${a}" stroke-width="5" stroke-linecap="round"/></svg>
-    <svg width="64" height="80" viewBox="0 0 70 90"><circle cx="35" cy="16" r="7" fill="${b}"/>
-    <line x1="35" y1="23" x2="35" y2="50" stroke="${b}" stroke-width="5" stroke-linecap="round"/>
-    <line x1="35" y1="50" x2="52" y2="45" stroke="${b}" stroke-width="4" stroke-linecap="round"/>
-    <line x1="35" y1="50" x2="18" y2="70" stroke="${b}" stroke-width="5" stroke-linecap="round"/></svg>`,
   cardio: (a,b)=>`
-    <svg width="64" height="80" viewBox="0 0 70 90"><circle cx="26" cy="20" r="7" fill="${a}"/>
+    <svg viewBox="0 0 70 90"><circle cx="26" cy="20" r="7" fill="${a}"/>
     <line x1="26" y1="27" x2="30" y2="50" stroke="${a}" stroke-width="5" stroke-linecap="round"/>
     <line x1="30" y1="50" x2="18" y2="45" stroke="${a}" stroke-width="4" stroke-linecap="round"/>
     <line x1="30" y1="50" x2="45" y2="70" stroke="${a}" stroke-width="5" stroke-linecap="round"/>
     <line x1="30" y1="50" x2="15" y2="75" stroke="${a}" stroke-width="5" stroke-linecap="round"/></svg>
-    <svg width="64" height="80" viewBox="0 0 70 90"><circle cx="40" cy="20" r="7" fill="${b}"/>
+    <svg viewBox="0 0 70 90"><circle cx="40" cy="20" r="7" fill="${b}"/>
     <line x1="40" y1="27" x2="34" y2="50" stroke="${b}" stroke-width="5" stroke-linecap="round"/>
     <line x1="34" y1="50" x2="55" y2="42" stroke="${b}" stroke-width="4" stroke-linecap="round"/>
     <line x1="34" y1="50" x2="20" y2="72" stroke="${b}" stroke-width="5" stroke-linecap="round"/>
@@ -712,9 +670,7 @@ function renderWorkout(){
       <div class="stage-label"><span>En curso</span><span class="round">${ex.group}</span></div>
       <div class="ex-name">${ex.name}</div>
       <div class="ex-reps-big">${ex.reps}</div>
-      <div class="illus" style="display:flex;gap:8px;align-items:center;justify-content:center;background:var(--plate);border-radius:10px;padding:10px 6px;margin-bottom:14px;">
-        ${POSES[ex.pose]('#eae6dd','#ffb020')}
-      </div>
+      ${renderIllustration(ex)}
       <ul class="cues"><li>${ex.desc}</li></ul>
       <div class="timer">${fmt(state.secondsLeft<0?0:state.secondsLeft)}</div>
       <button class="btn-ghost btn-block" onclick="skipStep()">Saltar</button>
