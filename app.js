@@ -238,6 +238,7 @@ const STRETCHES = {
 /* ================= STORAGE (localStorage, offline) ================= */
 const LS_SETTINGS = 'rutina-gym:settings';
 const LS_HISTORY  = 'rutina-gym:history';
+const LS_HEALTH   = 'rutina-gym:health';
 
 function loadSettings(){
   try{
@@ -258,6 +259,15 @@ function saveHistorySession(session){
   const h = loadHistory();
   h.unshift(session); // más reciente primero
   try{ localStorage.setItem(LS_HISTORY, JSON.stringify(h.slice(0,200))); }catch(e){}
+}
+function loadHealth(){
+  try{
+    const raw = localStorage.getItem(LS_HEALTH);
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+function saveHealth(h){
+  try{ localStorage.setItem(LS_HEALTH, JSON.stringify(h)); }catch(e){}
 }
 
 /* ================= GENERADOR DE RUTINA (evita repetir) ================= */
@@ -312,6 +322,12 @@ let state = {
   routine: [],
   step: 0,
   secondsLeft: WORK,
+  workSeconds: WORK,        // segundos de trabajo de la sesión (se ajusta según Apple Health)
+  intensityNote: '',
+  startedAt: null,
+  lastSession: null,
+  healthLogStatus: 'idle',  // idle | ok
+  health: null,             // { sleepHours, restingHR, syncedAt }
   timerId: null,
   syncStatus: 'idle',       // idle | syncing | ok | error
 };
@@ -369,8 +385,82 @@ function initState(){
   state.equipment = settings.equipment.length ? settings.equipment : ['bodyweight'];
   state.muscleGroups = MUSCLE_GROUPS.map(m=>m.id); // por defecto todo marcado, el usuario desmarca
   state.screen = 'equip';
+  state.health = loadHealth();
 }
 initState();
+
+/* ---------- Puente con Apple Health vía Apple Shortcuts ---------- */
+const HEALTH_SYNC_SHORTCUT = 'Rutina Gym - Leer Salud';
+const HEALTH_LOG_SHORTCUT  = 'Rutina Gym - Registrar Entrenamiento';
+
+function appBaseUrl(){
+  return location.origin + location.pathname;
+}
+function timeAgo(iso){
+  if(!iso) return '';
+  const mins = Math.round((Date.now() - new Date(iso).getTime())/60000);
+  if(mins < 1) return 'justo ahora';
+  if(mins < 60) return `hace ${mins} min`;
+  const hrs = Math.round(mins/60);
+  if(hrs < 24) return `hace ${hrs} h`;
+  return `hace ${Math.round(hrs/24)} d`;
+}
+function openHealthSyncShortcut(){
+  const successUrl = encodeURIComponent(appBaseUrl() + '?xcb=health_success');
+  const cancelUrl  = encodeURIComponent(appBaseUrl() + '?xcb=health_cancel');
+  const url = `shortcuts://x-callback-url/run-shortcut?name=${encodeURIComponent(HEALTH_SYNC_SHORTCUT)}`
+    + `&x-success=${successUrl}&x-cancel=${cancelUrl}`;
+  window.location.href = url;
+}
+function openHealthLogShortcut(){
+  const s = state.lastSession;
+  if(!s) return;
+  const payload = { durationMinutes: s.durationMinutes, esCardio: s.esCardio, fecha: s.date };
+  const text = encodeURIComponent(JSON.stringify(payload));
+  const successUrl = encodeURIComponent(appBaseUrl() + '?xcb=log_success');
+  const cancelUrl  = encodeURIComponent(appBaseUrl() + '?xcb=log_cancel');
+  const url = `shortcuts://x-callback-url/run-shortcut?name=${encodeURIComponent(HEALTH_LOG_SHORTCUT)}`
+    + `&input=text&text=${text}&x-success=${successUrl}&x-cancel=${cancelUrl}`;
+  window.location.href = url;
+}
+function computeIntensity(health){
+  if(!health) return { workSeconds: WORK, note: '' };
+  const lowSleep = typeof health.sleepHours === 'number' && health.sleepHours < 6;
+  const highHR = typeof health.restingHR === 'number' && health.restingHR > 75;
+  if(!lowSleep && !highHR) return { workSeconds: WORK, note: '' };
+  const reasons = [];
+  if(lowSleep) reasons.push(`dormiste ${health.sleepHours.toFixed(1)}h`);
+  if(highHR) reasons.push(`tu FC en reposo (${health.restingHR} bpm) está algo alta`);
+  return {
+    workSeconds: Math.max(25, WORK - 10),
+    note: `Intensidad ajustada hoy: ${reasons.join(' y ')}. Agrega 5 min de calentamiento extra antes de empezar.`
+  };
+}
+function handleShortcutCallback(){
+  const params = new URLSearchParams(location.search);
+  const xcb = params.get('xcb');
+  if(!xcb) return;
+  if(xcb === 'health_success'){
+    const raw = params.get('result');
+    if(raw){
+      try{
+        const data = JSON.parse(raw);
+        const sleepHours = typeof data.sleepHours === 'number' ? data.sleepHours : parseFloat(data.sleepHours);
+        const restingHR = typeof data.restingHR === 'number' ? data.restingHR : parseInt(data.restingHR, 10);
+        const health = {
+          sleepHours: isNaN(sleepHours) ? null : sleepHours,
+          restingHR: isNaN(restingHR) ? null : restingHR,
+          syncedAt: new Date().toISOString(),
+        };
+        saveHealth(health);
+        state.health = health;
+      }catch(e){ console.error('No se pudo leer el resultado del Shortcut', e); }
+    }
+  } else if(xcb === 'log_success'){
+    state.healthLogStatus = 'ok';
+  }
+  history.replaceState(null, '', appBaseUrl());
+}
 
 function clearTimer(){ if(state.timerId){ clearInterval(state.timerId); state.timerId=null; } }
 
@@ -399,6 +489,9 @@ function toggleMuscle(id){
 function confirmMuscles(){
   if(state.muscleGroups.length === 0){ return; }
   state.routine = generateRoutine(state.equipment, state.muscleGroups);
+  const intensity = computeIntensity(state.health);
+  state.workSeconds = intensity.workSeconds;
+  state.intensityNote = intensity.note;
   state.screen = 'overview';
   render();
 }
@@ -413,7 +506,8 @@ function startWorkout(){
   if(state.routine.length === 0) return;
   state.screen = 'workout';
   state.step = 0;
-  state.secondsLeft = WORK;
+  state.secondsLeft = state.workSeconds;
+  state.startedAt = Date.now();
   clearTimer();
   state.timerId = setInterval(tick, 1000);
   render();
@@ -433,7 +527,7 @@ function tick(){
     } else if(state.screen === 'rest'){
       state.step++;
       state.screen = 'workout';
-      state.secondsLeft = WORK;
+      state.secondsLeft = state.workSeconds;
     }
   }
   render();
@@ -443,19 +537,29 @@ function skipStep(){
     if(state.step === state.routine.length-1){ clearTimer(); finishWorkout(); }
     else { state.screen='rest'; state.secondsLeft=REST; }
   } else if(state.screen === 'rest'){
-    state.step++; state.screen='workout'; state.secondsLeft=WORK;
+    state.step++; state.screen='workout'; state.secondsLeft=state.workSeconds;
   }
   render();
 }
 function finishWorkout(){
   const today = new Date().toISOString().slice(0,10);
+  const durationMinutes = state.startedAt
+    ? Math.max(1, Math.round((Date.now()-state.startedAt)/60000))
+    : Math.round(state.routine.length*(state.workSeconds+REST)/60);
+  const groupCounts = {};
+  state.routine.forEach(e=>{ groupCounts[e.group] = (groupCounts[e.group]||0)+1; });
+  const esCardio = (groupCounts.cardio||0) >= state.routine.length/2;
   const session = {
     date: today,
     exerciseIds: state.routine.map(e=>e.id),
     exerciseNames: state.routine.map(e=>e.name),
+    durationMinutes,
+    esCardio,
   };
   saveHistorySession(session);
   autoSyncIfConnected();
+  state.lastSession = session;
+  state.healthLogStatus = 'idle';
   state.screen = 'done';
   render();
 }
@@ -531,6 +635,9 @@ function renderMuscles(){
       <span class="icon">${m.icon}</span><span class="label">${m.label}</span>
     </div>`;
   }).join('');
+  const healthStatus = state.health
+    ? `🍏 Sueño ${state.health.sleepHours!=null?state.health.sleepHours.toFixed(1)+'h':'—'} · FC reposo ${state.health.restingHR!=null?state.health.restingHR+' bpm':'—'} <span style="opacity:.6;">(${timeAgo(state.health.syncedAt)})</span>`
+    : 'Aún no sincronizado hoy';
   return `
     <header>
       <div class="eyebrow">Paso 2 de 2</div>
@@ -538,7 +645,9 @@ function renderMuscles(){
       <div class="sub">Desmarca zonas con fatiga o molestia</div>
     </header>
     <div class="equip-grid">${items}</div>
-    <button class="btn-primary btn-block" onclick="confirmMuscles()">Generar rutina</button>
+    <button class="btn-ghost btn-block" onclick="openHealthSyncShortcut()">🍏 Sincronizar con Apple Health</button>
+    <p style="text-align:center;font-size:12.5px;color:var(--chalk-dim);margin:8px 0 4px;">${healthStatus}</p>
+    <button class="btn-primary btn-block" style="margin-top:10px;" onclick="confirmMuscles()">Generar rutina</button>
     <div style="text-align:center;margin-top:10px;">
       <button class="btn-ghost" style="background:none;border:none;color:var(--chalk-dim);font-size:12.5px;text-decoration:underline;" onclick="backToEquip()">← Cambiar equipo</button>
     </div>
@@ -556,12 +665,16 @@ function renderOverview(){
   const rows = state.routine.map(ex=>`
     <div class="ex-row"><span>${ex.name}<br><span class="tag">${ex.group}</span></span><span class="reps">${ex.reps}</span></div>
   `).join('');
+  const intensityBanner = state.intensityNote
+    ? `<div class="card" style="border-color:var(--accent);"><p style="font-size:13px;color:var(--chalk-dim);margin:0;">🍏 ${state.intensityNote}</p></div>`
+    : '';
   return `
     <header>
       <div class="eyebrow">Tu rutina de hoy</div>
       <h1>${state.routine.length} ejercicios</h1>
-      <div class="sub">40s trabajo / 15s descanso por estación</div>
+      <div class="sub">${state.workSeconds}s trabajo / 15s descanso por estación</div>
     </header>
+    ${intensityBanner}
     <div class="card">${rows}</div>
     <button class="btn-primary btn-block" onclick="startWorkout()">Empezar entrenamiento</button>
     <div style="display:flex;gap:10px;margin-top:10px;">
@@ -576,7 +689,7 @@ function renderProgress(){
   for(let i=0;i<state.routine.length;i++){
     const doneCls = i<state.step ? 'done':'';
     let pct=0;
-    if(i===state.step){ pct = state.screen==='workout' ? Math.round(((WORK-state.secondsLeft)/WORK)*100) : 100; }
+    if(i===state.step){ pct = state.screen==='workout' ? Math.round(((state.workSeconds-state.secondsLeft)/state.workSeconds)*100) : 100; }
     segs += `<div class="seg ${doneCls}"><div class="fill" style="width:${pct}%"></div></div>`;
   }
   return `<div class="progress-track">${segs}</div>`;
@@ -632,6 +745,9 @@ function renderDone(){
       <div class="eyebrow" style="margin-bottom:8px;">Estiramientos sugeridos</div>
       ${stretchItems}
     </div>
+    <button class="btn-ghost btn-block" onclick="openHealthLogShortcut()">🍎 Registrar en Apple Health</button>
+    ${state.healthLogStatus==='ok' ? '<p style="text-align:center;font-size:13px;margin-top:8px;color:var(--good);">✅ Enviado a Shortcuts</p>' : ''}
+    <div style="height:10px;"></div>
     <button class="btn-primary btn-block" onclick="newRoutine()">Nueva rutina</button>
   `;
 }
@@ -713,6 +829,7 @@ function renderNube(){
 }
 
 /* ================= INICIO ================= */
+handleShortcutCallback();
 render();
 
 /* Registrar service worker para funcionamiento offline */
