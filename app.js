@@ -228,6 +228,31 @@ function saveHealth(h){
   try{ localStorage.setItem(LS_HEALTH, JSON.stringify(h)); }catch(e){}
 }
 
+/* ---------- Calorías estimadas: fórmula MET estándar ----------
+   kcal/min = MET x 3.5 x peso(kg) / 200 (fórmula estándar de gasto energético)
+   Valores MET aproximados del Compendium of Physical Activities, por categoría:
+   ------------------------------------------------------------- */
+const MET_FUERZA = 5.0;  // entrenamiento de fuerza con pesas/máquina/banda, esfuerzo moderado-vigoroso
+const MET_CARDIO = 7.0;  // cardio moderado-vigoroso (elíptica, burpees)
+const MET_CORE   = 3.8;  // core / abdominales, esfuerzo moderado
+const MET_REST   = 1.3;  // de pie, descanso ligero entre estaciones
+
+function metForGroup(group){
+  if(group === 'cardio') return MET_CARDIO;
+  if(group === 'core') return MET_CORE;
+  return MET_FUERZA;
+}
+function computeCalories(exerciseLog, restSeconds, weightKg){
+  if(!weightKg || weightKg <= 0) return null;
+  let cal = 0;
+  (exerciseLog||[]).forEach(e=>{
+    const minutes = e.seconds / 60;
+    cal += metForGroup(e.group) * 3.5 * weightKg / 200 * minutes;
+  });
+  cal += MET_REST * 3.5 * weightKg / 200 * ((restSeconds||0) / 60);
+  return Math.round(cal);
+}
+
 /* ---------- Helpers de historial: grupos musculares, timestamps, recuperación ---------- */
 const RECOVERY_HOURS = 24; // debajo de esto, avisamos que el grupo quizás no se ha recuperado
 
@@ -351,6 +376,10 @@ let state = {
   driveRecommendation: null,  // { groups, labels, detail } basado en historial completo de Drive
   driveRecStatus: 'idle',     // idle | loading | ready | unavailable
   startedAt: null,
+  segmentStartedAt: null,   // timestamp del inicio de la estación/descanso actual (para tiempo real)
+  exerciseLog: [],          // [{ id, group, seconds }] segundos reales trabajados por ejercicio
+  restSecondsTotal: 0,      // segundos reales de descanso acumulados
+  weightSaveStatus: 'idle', // idle | ok | error
   lastSession: null,
   healthLogStatus: 'idle',  // idle | ok
   health: null,             // { sleepHours, restingHR, syncedAt }
@@ -533,7 +562,7 @@ function toggleEquip(id){
   render();
 }
 function confirmEquip(){
-  saveSettings({ equipment: state.equipment });
+  saveSettings({ ...loadSettings(), equipment: state.equipment });
   state.screen = 'muscles';
   fetchDriveRecommendation();
   render();
@@ -566,36 +595,58 @@ function startWorkout(){
   state.step = 0;
   state.secondsLeft = state.workSeconds;
   state.startedAt = Date.now();
+  state.segmentStartedAt = Date.now();
+  state.exerciseLog = [];
+  state.restSecondsTotal = 0;
   clearTimer();
   state.timerId = setInterval(tick, 1000);
   render();
+}
+
+// Cierra el segmento actual (estación de trabajo o descanso) y registra el tiempo REAL transcurrido,
+// para que las calorías se calculen sobre duración real y no sobre los segundos nominales.
+function closeSegment(kind){
+  if(!state.segmentStartedAt) return;
+  const elapsed = Math.max(0, (Date.now() - state.segmentStartedAt) / 1000);
+  if(kind === 'workout'){
+    const ex = state.routine[state.step];
+    if(ex) state.exerciseLog.push({ id: ex.id, group: ex.group, seconds: elapsed });
+  } else {
+    state.restSecondsTotal += elapsed;
+  }
 }
 
 function tick(){
   state.secondsLeft--;
   if(state.secondsLeft < 0){
     if(state.screen === 'workout'){
+      closeSegment('workout');
       if(state.step === state.routine.length-1){
         clearTimer();
         finishWorkout();
       } else {
         state.screen = 'rest';
         state.secondsLeft = REST;
+        state.segmentStartedAt = Date.now();
       }
     } else if(state.screen === 'rest'){
+      closeSegment('rest');
       state.step++;
       state.screen = 'workout';
       state.secondsLeft = state.workSeconds;
+      state.segmentStartedAt = Date.now();
     }
   }
   render();
 }
 function skipStep(){
   if(state.screen === 'workout'){
+    closeSegment('workout');
     if(state.step === state.routine.length-1){ clearTimer(); finishWorkout(); }
-    else { state.screen='rest'; state.secondsLeft=REST; }
+    else { state.screen='rest'; state.secondsLeft=REST; state.segmentStartedAt = Date.now(); }
   } else if(state.screen === 'rest'){
-    state.step++; state.screen='workout'; state.secondsLeft=state.workSeconds;
+    closeSegment('rest');
+    state.step++; state.screen='workout'; state.secondsLeft=state.workSeconds; state.segmentStartedAt = Date.now();
   }
   render();
 }
@@ -608,6 +659,8 @@ function finishWorkout(){
   const groupCounts = {};
   state.routine.forEach(e=>{ groupCounts[e.group] = (groupCounts[e.group]||0)+1; });
   const esCardio = (groupCounts.cardio||0) >= state.routine.length/2;
+  const weightKg = loadSettings().weightKg || null;
+  const calories = computeCalories(state.exerciseLog, state.restSecondsTotal, weightKg);
   const session = {
     date: today,
     completedAt,
@@ -616,6 +669,7 @@ function finishWorkout(){
     groups: [...new Set(state.routine.map(e=>e.group))],
     durationMinutes,
     esCardio,
+    calories,
   };
   saveHistorySession(session);
   autoSyncIfConnected();
@@ -637,6 +691,17 @@ function goTab(tab){
   state.tab = tab;
   render();
 }
+function saveWeight(){
+  const input = document.getElementById('weightInput');
+  const val = input ? parseFloat(input.value) : NaN;
+  if(!isNaN(val) && val >= 30 && val <= 300){
+    saveSettings({ ...loadSettings(), weightKg: val });
+    state.weightSaveStatus = 'ok';
+  } else {
+    state.weightSaveStatus = 'error';
+  }
+  render();
+}
 
 /* ================= RENDER ================= */
 function render(){
@@ -656,12 +721,16 @@ function renderTabbar(){
       <button class="tab ${state.tab==='nube'?'active':''}" onclick="goTab('nube')">
         <span class="ic">☁️</span>Nube
       </button>
+      <button class="tab ${state.tab==='ajustes'?'active':''}" onclick="goTab('ajustes')">
+        <span class="ic">⚙️</span>Ajustes
+      </button>
     </div>`;
 }
 
 function renderContent(){
   if(state.tab === 'historial') return renderHistorial();
   if(state.tab === 'nube') return renderNube();
+  if(state.tab === 'ajustes') return renderAjustes();
   // tab rutina
   switch(state.screen){
     case 'equip': return renderEquip();
@@ -832,12 +901,24 @@ function renderDone(){
   const stretchItems = groupsWorked.filter(g=>STRETCHES[g]).map(g=>`
     <div class="ex-row"><span><b style="text-transform:capitalize">${g}</b><br><span class="tag">${STRETCHES[g]}</span></span></div>
   `).join('');
+  const calories = state.lastSession ? state.lastSession.calories : null;
+  const caloriesCard = calories != null
+    ? `<div class="card" style="text-align:center;">
+        <div class="eyebrow" style="margin-bottom:4px;">Estimado</div>
+        <div style="font-size:32px;font-weight:800;color:var(--accent);">🔥 ${calories} kcal</div>
+        <p style="color:var(--chalk-dim);font-size:11.5px;margin-top:4px;">Estimación aproximada (MET estándar × tu peso × duración real)</p>
+      </div>`
+    : `<div class="card" style="text-align:center;">
+        <p style="color:var(--chalk-dim);font-size:13px;margin:0 0 10px;">Agrega tu peso en Ajustes para ver las calorías estimadas de esta rutina.</p>
+        <button class="btn-ghost btn-block" onclick="goTab('ajustes')">⚙️ Ir a Ajustes</button>
+      </div>`;
   return `
     <header><div class="eyebrow">¡Terminaste!</div><h1>Buen trabajo 💪</h1></header>
     <div class="card done-screen">
       <div class="big-num">${state.routine.length}/${state.routine.length}</div>
       <p>Ejercicios completados y guardados en tu historial.</p>
     </div>
+    ${caloriesCard}
     <div class="card">
       <div class="eyebrow" style="margin-bottom:8px;">Estiramientos sugeridos</div>
       ${stretchItems}
@@ -869,7 +950,7 @@ function renderHistorial(){
     ? `<div class="empty-state">Aún no hay entrenamientos guardados.<br>Completa tu primera rutina para verla aquí.</div>`
     : history.map(h=>`
       <div class="session-item">
-        <div class="date">${h.date}</div>
+        <div class="date">${h.date}${h.calories!=null ? ` · 🔥 ${h.calories} kcal` : ''}</div>
         <div class="list">${h.exerciseNames.join(' · ')}</div>
       </div>
     `).join('');
@@ -922,6 +1003,28 @@ function renderNube(){
     <div style="height:10px;"></div>
     <button class="btn-ghost btn-block" style="color:var(--bad);" onclick="disconnectDrive()">Desconectar</button>
     ${statusMsg?`<p style="text-align:center;font-size:13px;margin-top:10px;">${statusMsg}</p>`:''}
+  `;
+}
+
+function renderAjustes(){
+  const settings = loadSettings();
+  const weightMsg = {
+    ok: '<p style="text-align:center;font-size:13px;margin-top:10px;color:var(--good);">✅ Peso guardado</p>',
+    error: '<p style="text-align:center;font-size:13px;margin-top:10px;color:var(--bad);">⚠️ Ingresa un peso válido (30-300 kg)</p>',
+  }[state.weightSaveStatus] || '';
+  return `
+    <header><div class="eyebrow">Ajustes</div><h1>Tu perfil</h1></header>
+    <div class="card">
+      <label style="display:block;font-size:12.5px;color:var(--chalk-dim);margin-bottom:8px;">Peso corporal aproximado (kg)</label>
+      <input id="weightInput" type="number" inputmode="decimal" min="30" max="300" step="0.5"
+        placeholder="ej. 70" value="${settings.weightKg || ''}"
+        style="width:100%;background:var(--plate);border:1px solid var(--line);border-radius:10px;color:var(--chalk);font-size:16px;padding:12px 14px;margin-bottom:12px;">
+      <button class="btn-primary btn-block" onclick="saveWeight()">Guardar peso</button>
+      ${weightMsg}
+      <p style="color:var(--chalk-dim);font-size:12px;line-height:1.5;margin:14px 0 0;">
+        Se usa solo para estimar las calorías quemadas por rutina (fórmula MET estándar). No se comparte ni se sube a ningún lado excepto tu propio respaldo de Drive.
+      </p>
+    </div>
   `;
 }
 
