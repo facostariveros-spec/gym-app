@@ -31,6 +31,40 @@ const MUSCLE_GROUPS = [
   { id: 'cardio',   label: 'Cardio',         icon: '🚴' },
 ];
 
+/* ---------- Check-in: cómo te sientes + dolor por zona ---------- */
+const FEELING_OPTIONS = [
+  { id: 'cansado',  label: 'Cansado',      icon: '😞' },
+  { id: 'normal',   label: 'Normal',       icon: '😐' },
+  { id: 'energico', label: 'Con energía',  icon: '😊' },
+];
+const PAIN_ZONES = [
+  { id: 'piernas',      label: 'Piernas',       icon: '🦵' },
+  { id: 'espalda_baja', label: 'Espalda baja',  icon: '🔙' },
+  { id: 'hombros',      label: 'Hombros',       icon: '🤷' },
+  { id: 'rodillas',     label: 'Rodillas',      icon: '🦴' },
+  { id: 'muñecas',      label: 'Muñecas',       icon: '✋' },
+  { id: 'cuello',       label: 'Cuello',        icon: '🙆' },
+  { id: 'ninguno',      label: 'Ninguno',       icon: '✅' },
+];
+// Ejercicios que se excluyen de la rutina si hay dolor marcado en esa zona
+// (criterio biomecánico general, no una recomendación clínica).
+const PAIN_EXERCISE_EXCLUSIONS = {
+  rodillas:      ['squat_barbell','lunge_db','bw_squat','bw_lunge','goblet_squat','burpee'],
+  espalda_baja:  ['rdl_barbell','rdl_db','row_barbell','kb_swing','burpee','superman'],
+  hombros:       ['ohp_barbell','shoulder_press_db','pull_up','lat_pulldown'],
+  muñecas:       ['pushup','plank','mountain_climber','burpee','bench_press_db'],
+  cuello:        ['ohp_barbell','pull_up'],
+};
+// Mapeo más amplio zona -> grupo, solo para el aviso visual en la pantalla de grupos
+// (la exclusión real de ejercicios ya la garantiza PAIN_EXERCISE_EXCLUSIONS).
+const PAIN_GROUP_WARNING = {
+  rodillas: ['piernas'],
+  espalda_baja: ['espalda'],
+  hombros: ['hombros'],
+  muñecas: ['brazos','pecho'],
+  cuello: ['hombros'],
+};
+
 /* ---------- Ilustración: fotos reales (free-exercise-db, dominio público) ---------- */
 // Cada ejercicio con foto tiene exercises/<id>/0.jpg (inicio) y 1.jpg (final).
 // Los 3 ejercicios sin match confiable en la base de fotos usan el dibujo SVG de respaldo.
@@ -326,20 +360,26 @@ function lastUsedDate(exId, history){
 
 function generateRoutine(equipment, muscleGroups, opts){
   opts = opts || {};
+  const excludeIds = opts.excludeIds || [];
+  const setsAdjust = opts.setsAdjust || 0;
   const history = loadHistory();
   const lastSession = history[0];
   const lastSessionIds = lastSession ? (lastSession.exerciseIds||[]) : [];
 
   const picked = [];
+  const skippedGroups = []; // grupos elegidos pero sin ningún ejercicio seguro (todo excluido por dolor)
   const order = ['piernas','pecho','espalda','hombros','brazos','core','cardio'];
   let groupsToUse = order.filter(g => muscleGroups.includes(g));
   if(opts.maxStations) groupsToUse = groupsToUse.slice(0, opts.maxStations);
 
   groupsToUse.forEach(group=>{
-    let candidates = EXERCISES.filter(ex =>
+    const allCandidates = EXERCISES.filter(ex =>
       ex.group === group && ex.equip.some(eq => equipment.includes(eq))
     );
-    if(candidates.length === 0) return; // no hay equipo para ese grupo hoy
+    if(allCandidates.length === 0) return; // no hay equipo para ese grupo hoy
+
+    const candidates = allCandidates.filter(ex => !excludeIds.includes(ex.id));
+    if(candidates.length === 0){ skippedGroups.push(group); return; } // todo lo disponible está excluido por dolor
 
     // evita repetir el ejercicio exacto de la sesión inmediatamente anterior si hay alternativa
     const notLastSession = candidates.filter(c => !lastSessionIds.includes(c.id));
@@ -356,10 +396,12 @@ function generateRoutine(equipment, muscleGroups, opts){
     });
 
     // copia superficial: el usuario puede editar series/reps de la rutina de hoy sin tocar EXERCISES
-    picked.push({ ...pool[0] });
+    const ex = { ...pool[0] };
+    if(setsAdjust) ex.sets = Math.min(6, Math.max(1, (ex.sets||1) + setsAdjust));
+    picked.push(ex);
   });
 
-  return picked;
+  return { routine: picked, skippedGroups };
 }
 
 // Arma la lista real de estaciones a recorrer (una por cada serie de cada ejercicio),
@@ -387,15 +429,20 @@ function buildPlan(routine, style){
 /* ================= ESTADO DE LA APP ================= */
 let state = {
   tab: 'rutina',            // 'rutina' | 'historial' | 'nube'
-  screen: 'equip',          // equip -> muscles -> overview -> workout -> rest -> done
+  screen: 'checkin',        // checkin -> equip -> muscles -> overview -> workout -> rest -> done
+  feeling: 'normal',        // 'cansado' | 'normal' | 'energico'
+  painZones: [],            // ids de PAIN_ZONES marcados (excluye 'ninguno' de la lógica real)
+  intensityOverride: null,  // 'suave' | 'normal' | 'desafiante' | null — forzado manual en check-in
+  intensityResult: null,    // { level, note, workSeconds, maxStations, setsAdjust, excludeIds }
   equipment: [],
   muscleGroups: [],
   routine: [],
+  skippedGroups: [],        // grupos seleccionados que se omitieron por no tener alternativa sin dolor
   workoutStyle: 'circuito', // 'circuito' | 'porEjercicio' — se carga desde settings al iniciar
   plan: [],                 // estaciones reales a recorrer (una por cada serie), armadas al empezar
   step: 0,
   secondsLeft: WORK,
-  workSeconds: WORK,        // segundos de trabajo de la sesión (se ajusta según Apple Health)
+  workSeconds: WORK,        // segundos de trabajo de la sesión (viene del check-in de intensidad)
   maxStations: null,        // límite de estaciones si la intensidad está reducida
   intensityNote: '',
   driveRecommendation: null,  // { groups, labels, detail } basado en historial completo de Drive
@@ -471,6 +518,7 @@ function fetchDriveRecommendation(){
       const rec = analyzeForRecommendation(merged);
       state.driveRecommendation = rec;
       state.driveRecStatus = rec ? 'ready' : 'unavailable';
+      if(rec) state.muscleGroups = [...rec.groups]; // pre-selección real, no solo sugerencia
     }catch(e){
       console.error('No se pudo traer historial de Drive para la recomendación', e);
       state.driveRecStatus = 'unavailable';
@@ -487,10 +535,14 @@ function useRecommendation(){
 function initState(){
   const settings = loadSettings();
   state.equipment = settings.equipment.length ? settings.equipment : ['bodyweight'];
-  state.muscleGroups = MUSCLE_GROUPS.map(m=>m.id); // por defecto todo marcado, el usuario desmarca
-  state.screen = 'equip';
+  state.muscleGroups = MUSCLE_GROUPS.map(m=>m.id); // por defecto todo marcado; el check-in lo pre-ajusta si hay Drive
+  state.screen = 'checkin';
   state.health = loadHealth();
   state.workoutStyle = settings.workoutStyle === 'porEjercicio' ? 'porEjercicio' : 'circuito';
+  state.feeling = 'normal';
+  state.painZones = [];
+  state.intensityOverride = null;
+  state.intensityResult = null;
 }
 initState();
 
@@ -540,19 +592,57 @@ function openHealthLogShortcut(){
   };
   window.location.href = buildHealthLogUrl(payload);
 }
-function computeIntensity(health){
-  if(!health) return { workSeconds: WORK, maxStations: null, note: '' };
-  const lowSleep = typeof health.sleepHours === 'number' && health.sleepHours < 6;
-  const highHR = typeof health.restingHR === 'number' && health.restingHR > 75;
-  if(!lowSleep && !highHR) return { workSeconds: WORK, maxStations: null, note: '' };
+// Consolida las 3 señales del check-in (cómo te sientes, dolor por zona, Apple Health)
+// en UN nivel de intensidad para toda la sesión. "Suave" gana si hay conflicto entre
+// señales (lectura conservadora): basta una sola señal negativa para bajar el nivel,
+// pero "Desafiante" necesita que TODAS las señales sean positivas.
+function computeIntensityLevel(feeling, painZones, health){
+  const realPainZones = (painZones||[]).filter(z => z !== 'ninguno');
+  const lowSleep = !!(health && typeof health.sleepHours === 'number' && health.sleepHours < 6);
+  // "bien dormido" es permisivo si no hay dato: la falta de info de salud no debe bloquear "Desafiante"
+  const goodSleep = !health || typeof health.sleepHours !== 'number' || health.sleepHours >= 7;
+  const highHR = !!(health && typeof health.restingHR === 'number' && health.restingHR > 75);
+  const tired = feeling === 'cansado';
+  const energetic = feeling === 'energico';
+  const manyPain = realPainZones.length >= 2;
+  const noPain = realPainZones.length === 0;
+
+  let level;
+  if(tired || lowSleep || highHR || manyPain) level = 'suave';
+  else if(energetic && goodSleep && noPain) level = 'desafiante';
+  else level = 'normal';
+
+  const excludeIds = new Set();
+  realPainZones.forEach(zone=>{
+    (PAIN_EXERCISE_EXCLUSIONS[zone]||[]).forEach(id=>excludeIds.add(id));
+  });
+
+  const setsAdjust = level === 'suave' ? -1 : level === 'desafiante' ? 1 : 0;
+  const workSeconds = level === 'suave' ? Math.max(25, WORK - 10) : WORK;
+  const maxStations = level === 'suave' ? 4 : null;
+
+  const hasGoodSleepData = !!(health && typeof health.sleepHours === 'number' && health.sleepHours >= 7);
   const reasons = [];
+  if(tired) reasons.push('te sientes cansado');
   if(lowSleep) reasons.push(`dormiste ${health.sleepHours.toFixed(1)}h`);
   if(highHR) reasons.push(`tu FC en reposo (${health.restingHR} bpm) está algo alta`);
-  return {
-    workSeconds: Math.max(25, WORK - 10),
-    maxStations: 4,
-    note: `Intensidad ajustada hoy: ${reasons.join(' y ')}. Rutina más corta (máx. 4 estaciones) y series más breves — agrega 5 min de calentamiento extra.`
-  };
+  if(manyPain) reasons.push(`dolor en ${realPainZones.length} zonas`);
+  if(level === 'desafiante'){
+    reasons.push('te sientes con energía');
+    if(hasGoodSleepData) reasons.push('dormiste bien'); // solo lo afirmamos si de verdad tenemos el dato
+  }
+
+  const levelLabel = { suave:'Suave', normal:'Normal', desafiante:'Desafiante' }[level];
+  let note = `Hoy: rutina ${levelLabel}`;
+  if(reasons.length) note += ` — ajustada por ${reasons.join(', ')}`;
+  note += '.';
+  if(realPainZones.length){
+    const zoneLabels = realPainZones.map(z => ((PAIN_ZONES.find(p=>p.id===z)||{}).label || z).toLowerCase());
+    note += ` Evitamos ejercicios de ${zoneLabels.join(', ')}.`;
+  }
+  if(level === 'desafiante') note += ' Si puedes, sube un poco el peso.';
+
+  return { level, note, workSeconds, maxStations, setsAdjust, excludeIds: [...excludeIds] };
 }
 function handleShortcutCallback(){
   const params = new URLSearchParams(location.search);
@@ -623,6 +713,49 @@ function fmt(s){
 }
 
 /* ---------- Navegación entre pasos ---------- */
+function selectFeeling(id){
+  state.feeling = id;
+  render();
+}
+function togglePainZone(id){
+  if(id === 'ninguno'){
+    state.painZones = state.painZones.includes('ninguno') ? [] : ['ninguno'];
+  } else {
+    state.painZones = state.painZones.filter(z => z !== 'ninguno');
+    const i = state.painZones.indexOf(id);
+    if(i>=0) state.painZones.splice(i,1); else state.painZones.push(id);
+  }
+  render();
+}
+function setIntensityOverride(level){
+  state.intensityOverride = state.intensityOverride === level ? null : level;
+  render();
+}
+function confirmCheckin(){
+  const computed = computeIntensityLevel(state.feeling, state.painZones, state.health);
+  let result = computed;
+  if(state.intensityOverride && state.intensityOverride !== computed.level){
+    // el usuario forzó un nivel distinto al calculado: las exclusiones por dolor
+    // se mantienen siempre (son un tema de seguridad, no de energía subjetiva)
+    const lvl = state.intensityOverride;
+    const setsAdjust = lvl === 'suave' ? -1 : lvl === 'desafiante' ? 1 : 0;
+    const workSeconds = lvl === 'suave' ? Math.max(25, WORK - 10) : WORK;
+    const maxStations = lvl === 'suave' ? 4 : null;
+    const levelLabel = { suave:'Suave', normal:'Normal', desafiante:'Desafiante' }[lvl];
+    let note = `Hoy: rutina ${levelLabel} (ajustado manualmente).`;
+    if(computed.excludeIds.length){
+      const realPainZones = state.painZones.filter(z => z !== 'ninguno');
+      const zoneLabels = realPainZones.map(z => ((PAIN_ZONES.find(p=>p.id===z)||{}).label || z).toLowerCase());
+      note += ` Evitamos ejercicios de ${zoneLabels.join(', ')}.`;
+    }
+    result = { level: lvl, note, workSeconds, maxStations, setsAdjust, excludeIds: computed.excludeIds };
+  }
+  state.intensityResult = result;
+  state.screen = 'equip';
+  fetchDriveRecommendation();
+  render();
+}
+function backToCheckin(){ state.screen = 'checkin'; render(); }
 function toggleEquip(id){
   const i = state.equipment.indexOf(id);
   if(i>=0) state.equipment.splice(i,1); else state.equipment.push(id);
@@ -631,7 +764,6 @@ function toggleEquip(id){
 function confirmEquip(){
   saveSettings({ ...loadSettings(), equipment: state.equipment });
   state.screen = 'muscles';
-  fetchDriveRecommendation();
   render();
 }
 function toggleMuscle(id){
@@ -641,16 +773,25 @@ function toggleMuscle(id){
 }
 function confirmMuscles(){
   if(state.muscleGroups.length === 0){ return; }
-  const intensity = computeIntensity(state.health);
+  const intensity = state.intensityResult || { workSeconds: WORK, maxStations: null, setsAdjust: 0, excludeIds: [], note: '' };
   state.workSeconds = intensity.workSeconds;
   state.maxStations = intensity.maxStations;
   state.intensityNote = intensity.note;
-  state.routine = generateRoutine(state.equipment, state.muscleGroups, { maxStations: state.maxStations });
+  const result = generateRoutine(state.equipment, state.muscleGroups, {
+    maxStations: state.maxStations, excludeIds: intensity.excludeIds, setsAdjust: intensity.setsAdjust,
+  });
+  state.routine = result.routine;
+  state.skippedGroups = result.skippedGroups;
   state.screen = 'overview';
   render();
 }
 function regenerate(){
-  state.routine = generateRoutine(state.equipment, state.muscleGroups, { maxStations: state.maxStations });
+  const intensity = state.intensityResult || { maxStations: state.maxStations, setsAdjust: 0, excludeIds: [] };
+  const result = generateRoutine(state.equipment, state.muscleGroups, {
+    maxStations: state.maxStations, excludeIds: intensity.excludeIds, setsAdjust: intensity.setsAdjust,
+  });
+  state.routine = result.routine;
+  state.skippedGroups = result.skippedGroups;
   render();
 }
 function adjustSets(i, delta){
@@ -761,8 +902,12 @@ function finishWorkout(){
 }
 function newRoutine(){
   clearTimer();
-  state.screen = 'equip';
+  state.screen = 'checkin';
   state.step = 0;
+  state.feeling = 'normal';
+  state.painZones = [];
+  state.intensityOverride = null;
+  state.intensityResult = null;
   // el historial cambió (se acaba de guardar/subir una sesión) — refresca la recomendación de Drive
   state.driveRecommendation = null;
   state.driveRecStatus = 'idle';
@@ -814,14 +959,82 @@ function renderContent(){
   if(state.tab === 'ajustes') return renderAjustes();
   // tab rutina
   switch(state.screen){
+    case 'checkin': return renderCheckin();
     case 'equip': return renderEquip();
     case 'muscles': return renderMuscles();
     case 'overview': return renderOverview();
     case 'workout': return renderWorkout();
     case 'rest': return renderRest();
     case 'done': return renderDone();
-    default: return renderEquip();
+    default: return renderCheckin();
   }
+}
+
+function renderCheckin(){
+  const feelingItems = FEELING_OPTIONS.map(f=>{
+    const sel = state.feeling === f.id;
+    return `<div class="equip-item ${sel?'selected':''}" onclick="selectFeeling('${f.id}')">
+      <span class="icon">${f.icon}</span><span class="label">${f.label}</span>
+    </div>`;
+  }).join('');
+
+  const painItems = PAIN_ZONES.map(z=>{
+    const sel = state.painZones.includes(z.id);
+    return `<div class="equip-item ${sel?'selected':''}" onclick="togglePainZone('${z.id}')">
+      <span class="icon">${z.icon}</span><span class="label">${z.label}</span>
+    </div>`;
+  }).join('');
+
+  const healthSection = state.health
+    ? `<p style="text-align:center;font-size:12.5px;color:var(--chalk-dim);margin:10px 0 0;">🍏 Sueño ${state.health.sleepHours!=null?state.health.sleepHours.toFixed(1)+'h':'—'} · FC reposo ${state.health.restingHR!=null?state.health.restingHR+' bpm':'—'} <span style="opacity:.6;">(${timeAgo(state.health.syncedAt)})</span></p>`
+    : `<button class="btn-ghost btn-block" style="margin-top:10px;" onclick="openHealthSyncShortcut()">🍏 Sincronizar con Apple Health</button>`;
+
+  const computed = computeIntensityLevel(state.feeling, state.painZones, state.health);
+  const effectiveLevel = state.intensityOverride || computed.level;
+  const levelIcons = { suave:'😌', normal:'👍', desafiante:'💪' };
+  const levelLabels = { suave:'Suave', normal:'Normal', desafiante:'Desafiante' };
+
+  let displayNote;
+  if(state.intensityOverride && state.intensityOverride !== computed.level){
+    displayNote = `Hoy: rutina ${levelLabels[effectiveLevel]} (ajustado manualmente).`;
+    const realPainZones = state.painZones.filter(z => z !== 'ninguno');
+    if(realPainZones.length){
+      const zoneLabels = realPainZones.map(z => ((PAIN_ZONES.find(p=>p.id===z)||{}).label || z).toLowerCase());
+      displayNote += ` Evitamos ejercicios de ${zoneLabels.join(', ')}.`;
+    }
+  } else {
+    displayNote = computed.note;
+  }
+
+  const overridePills = ['suave','normal','desafiante'].map(lvl=>`
+    <button class="style-opt ${effectiveLevel===lvl?'active':''}" onclick="setIntensityOverride('${lvl}')">${levelIcons[lvl]} ${levelLabels[lvl]}</button>
+  `).join('');
+
+  return `
+    <header>
+      <div class="eyebrow">Paso 1 de 3</div>
+      <h1>¿Cómo te sientes hoy?</h1>
+      <div class="sub">Esto ajusta la intensidad de toda la rutina</div>
+    </header>
+    <div class="equip-grid">${feelingItems}</div>
+
+    <header style="margin-top:22px;">
+      <div class="eyebrow">Dolor o molestia</div>
+      <h1 style="font-size:19px;">¿Alguna zona te está molestando?</h1>
+      <div class="sub">Puedes marcar más de una — evitamos ejercicios que la carguen</div>
+    </header>
+    <div class="equip-grid">${painItems}</div>
+
+    ${healthSection}
+
+    <div class="card" style="border-color:var(--accent);margin-top:16px;">
+      <div class="eyebrow" style="margin-bottom:6px;">${levelIcons[effectiveLevel]} Nivel calculado</div>
+      <p style="font-size:14px;margin:0 0 12px;line-height:1.5;">${displayNote}</p>
+      <div class="style-toggle">${overridePills}</div>
+    </div>
+
+    <button class="btn-primary btn-block" style="margin-top:14px;" onclick="confirmCheckin()">Continuar</button>
+  `;
 }
 
 function renderEquip(){
@@ -833,12 +1046,15 @@ function renderEquip(){
   }).join('');
   return `
     <header>
-      <div class="eyebrow">Paso 1 de 2</div>
+      <div class="eyebrow">Paso 2 de 3</div>
       <h1>¿Qué equipo tienes hoy?</h1>
       <div class="sub">Marca o desmarca según lo que tengas disponible</div>
     </header>
     <div class="equip-grid">${items}</div>
     <button class="btn-primary btn-block" onclick="confirmEquip()">Continuar</button>
+    <div style="text-align:center;margin-top:10px;">
+      <button class="btn-ghost" style="background:none;border:none;color:var(--chalk-dim);font-size:12.5px;text-decoration:underline;" onclick="backToCheckin()">← Volver al check-in</button>
+    </div>
   `;
 }
 
@@ -851,9 +1067,9 @@ function renderDriveRecommendation(){
     return `
       <div class="card" style="border-color:var(--accent);padding:14px;">
         <p style="font-size:11.5px;letter-spacing:1px;text-transform:uppercase;color:var(--chalk-dim);margin:0 0 8px;">📊 Basado en tu historial (Drive)</p>
-        <p style="font-size:17px;font-weight:800;margin:0 0 4px;">Te recomendamos hoy: ${rec.labels.join(' y ')}</p>
-        <p style="font-size:12.5px;color:var(--chalk-dim);margin:0 0 12px;">${rec.detail}</p>
-        <button class="btn-ghost btn-block" style="border-color:var(--accent);color:var(--accent);" onclick="useRecommendation()">Usar esta recomendación</button>
+        <p style="font-size:17px;font-weight:800;margin:0 0 4px;">Pre-seleccionamos: ${rec.labels.join(' y ')}</p>
+        <p style="font-size:12.5px;color:var(--chalk-dim);margin:0 0 10px;">${rec.detail}. Ajusta libremente los tiles de abajo si no estás de acuerdo.</p>
+        <button class="btn-ghost" style="border:none;background:none;color:var(--accent);font-size:12px;text-decoration:underline;padding:0;" onclick="useRecommendation()">🔁 Volver a esta recomendación</button>
       </div>`;
   }
   return '';
@@ -861,11 +1077,18 @@ function renderDriveRecommendation(){
 
 function renderMuscles(){
   const history = loadHistory();
+  const realPainZones = state.painZones.filter(z => z !== 'ninguno');
+  const groupsWithPainWarning = new Set();
+  realPainZones.forEach(z => (PAIN_GROUP_WARNING[z]||[]).forEach(g => groupsWithPainWarning.add(g)));
+
   const items = MUSCLE_GROUPS.map(m=>{
     const sel = state.muscleGroups.includes(m.id);
     const hrs = hoursSinceGroupTrained(m.id, history);
-    const warn = hrs != null && hrs < RECOVERY_HOURS;
-    const badge = warn ? `<div class="recovery-badge">⚠️ ${formatHoursAgo(hrs)}</div>` : '';
+    const recoveryWarn = hrs != null && hrs < RECOVERY_HOURS;
+    const painWarn = groupsWithPainWarning.has(m.id);
+    let badge = '';
+    if(painWarn) badge = `<div class="recovery-badge">⚠️ dolor marcado</div>`;
+    else if(recoveryWarn) badge = `<div class="recovery-badge">⚠️ ${formatHoursAgo(hrs)}</div>`;
     return `<div class="equip-item ${sel?'selected':''}" onclick="toggleMuscle('${m.id}')">
       <span class="icon">${m.icon}</span><span class="label">${m.label}</span>${badge}
     </div>`;
@@ -874,7 +1097,7 @@ function renderMuscles(){
   const selectedWarnings = MUSCLE_GROUPS.filter(m=>{
     if(!state.muscleGroups.includes(m.id)) return false;
     const hrs = hoursSinceGroupTrained(m.id, history);
-    return hrs != null && hrs < RECOVERY_HOURS;
+    return hrs != null && hrs < RECOVERY_HOURS && !groupsWithPainWarning.has(m.id);
   });
   const recoveryNote = selectedWarnings.length
     ? `<div class="card" style="border-color:var(--bad);padding:12px 14px;">
@@ -882,20 +1105,15 @@ function renderMuscles(){
       </div>`
     : '';
 
-  const healthStatus = state.health
-    ? `🍏 Sueño ${state.health.sleepHours!=null?state.health.sleepHours.toFixed(1)+'h':'—'} · FC reposo ${state.health.restingHR!=null?state.health.restingHR+' bpm':'—'} <span style="opacity:.6;">(${timeAgo(state.health.syncedAt)})</span>`
-    : 'Aún no sincronizado hoy';
   return `
     <header>
-      <div class="eyebrow">Paso 2 de 2</div>
+      <div class="eyebrow">Paso 3 de 3</div>
       <h1>¿Qué te sientes en condición de trabajar?</h1>
       <div class="sub">Desmarca zonas con fatiga o molestia</div>
     </header>
     ${renderDriveRecommendation()}
     <div class="equip-grid">${items}</div>
     ${recoveryNote}
-    <button class="btn-ghost btn-block" onclick="openHealthSyncShortcut()">🍏 Sincronizar con Apple Health</button>
-    <p style="text-align:center;font-size:12.5px;color:var(--chalk-dim);margin:8px 0 4px;">${healthStatus}</p>
     <button class="btn-primary btn-block" style="margin-top:10px;" onclick="confirmMuscles()">Generar rutina</button>
     <div style="text-align:center;margin-top:10px;">
       <button class="btn-ghost" style="background:none;border:none;color:var(--chalk-dim);font-size:12.5px;text-decoration:underline;" onclick="backToEquip()">← Cambiar equipo</button>
@@ -921,8 +1139,14 @@ function renderOverview(){
       </span>
     </div>
   `).join('');
+  const skippedNote = state.skippedGroups && state.skippedGroups.length
+    ? ' ⚠️ ' + state.skippedGroups.map(g=>{
+        const label = (MUSCLE_GROUPS.find(m=>m.id===g)||{}).label || g;
+        return `${label}: sin alternativa segura para tu dolor con el equipo de hoy, se omitió.`;
+      }).join(' ')
+    : '';
   const intensityBanner = state.intensityNote
-    ? `<div class="card" style="border-color:var(--accent);"><p style="font-size:13px;color:var(--chalk-dim);margin:0;">🍏 ${state.intensityNote}</p></div>`
+    ? `<div class="card" style="border-color:var(--accent);"><p style="font-size:13px;color:var(--chalk-dim);margin:0;">${state.intensityNote}${skippedNote}</p></div>`
     : '';
   const totalStations = buildPlan(state.routine, state.workoutStyle).length;
   const styleCard = `
