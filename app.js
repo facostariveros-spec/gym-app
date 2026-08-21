@@ -252,6 +252,38 @@ function saveHistorySession(session){
   h.unshift(session); // más reciente primero
   try{ localStorage.setItem(LS_HISTORY, JSON.stringify(h.slice(0,200))); }catch(e){}
 }
+// Identificador estable de una sesión, aunque sea vieja y no tenga completedAt.
+function sessionKey(s){
+  return (s.completedAt || s.date || '') + '|' + (s.exerciseIds||[]).join(',');
+}
+// Borra una sesión local y, si Drive está conectado, vuelve a subir el historial
+// ya sin ella (Drive guarda el respaldo completo, no hay borrado por-entrada en su API).
+function deleteHistorySession(key){
+  const h = loadHistory().filter(s => sessionKey(s) !== key);
+  try{ localStorage.setItem(LS_HISTORY, JSON.stringify(h)); }catch(e){}
+  state.confirmDeleteKey = null;
+  if(typeof DriveSync !== 'undefined' && DriveSync.connected){
+    state.syncStatus = 'syncing'; render();
+    DriveSync.connect(async ()=>{
+      try{
+        const payload = { settings: loadSettings(), history: h, savedAt: new Date().toISOString() };
+        await DriveSync.upload(payload);
+        state.syncStatus = 'ok';
+      }catch(e){ console.error('No se pudo borrar la sesión en Drive', e); state.syncStatus = 'error'; }
+      render();
+    });
+  } else {
+    render();
+  }
+}
+function requestDeleteSession(key){
+  state.confirmDeleteKey = key;
+  render();
+}
+function cancelDeleteSession(){
+  state.confirmDeleteKey = null;
+  render();
+}
 function loadHealth(){
   try{
     const raw = localStorage.getItem(LS_HEALTH);
@@ -324,9 +356,8 @@ function formatHoursAgo(h){
 }
 function mergeHistories(localHist, driveHist){
   const map = new Map();
-  const keyOf = s => (s.completedAt || s.date || '') + '|' + (s.exerciseIds||[]).join(',');
-  (driveHist||[]).forEach(s=> map.set(keyOf(s), s));
-  (localHist||[]).forEach(s=> map.set(keyOf(s), s)); // local gana en empate
+  (driveHist||[]).forEach(s=> map.set(sessionKey(s), s));
+  (localHist||[]).forEach(s=> map.set(sessionKey(s), s)); // local gana en empate
   return [...map.values()].sort((a,b)=> (sessionTimestamp(b)||0) - (sessionTimestamp(a)||0));
 }
 function analyzeForRecommendation(history){
@@ -452,6 +483,8 @@ let state = {
   exerciseLog: [],          // [{ id, group, seconds }] segundos reales trabajados por ejercicio
   restSecondsTotal: 0,      // segundos reales de descanso acumulados
   weightSaveStatus: 'idle', // idle | ok | error
+  confirmDeleteKey: null,   // sessionKey() de la sesión de historial pendiente de confirmar borrado
+  confirmEndEarly: false,   // true mientras se muestra el aviso de "¿terminar antes de tiempo?"
   lastSession: null,
   healthLogStatus: 'idle',  // idle | ok
   health: null,             // { sleepHours, restingHR, syncedAt }
@@ -871,24 +904,50 @@ function skipStep(){
   }
   render();
 }
+function requestEndEarly(){
+  state.confirmEndEarly = true;
+  render();
+}
+function cancelEndEarly(){
+  state.confirmEndEarly = false;
+  render();
+}
+function endWorkoutEarly(){
+  closeSegment(state.screen === 'rest' ? 'rest' : 'workout');
+  clearTimer();
+  state.confirmEndEarly = false;
+  finishWorkout();
+}
 function finishWorkout(){
   const today = new Date().toISOString().slice(0,10);
   const completedAt = new Date().toISOString();
   const durationMinutes = state.startedAt
     ? Math.max(1, Math.round((Date.now()-state.startedAt)/60000))
     : Math.round(state.plan.length*(state.workSeconds+REST)/60);
+
+  // ejercicios REALMENTE trabajados (importante si se terminó antes de tiempo: no asumir toda la rutina)
+  const doneIds = [...new Set(state.exerciseLog.map(e=>e.id))];
+  const doneExercises = doneIds.map(id => state.routine.find(e=>e.id===id)).filter(Boolean);
   const groupCounts = {};
-  state.routine.forEach(e=>{ groupCounts[e.group] = (groupCounts[e.group]||0)+1; });
-  const esCardio = (groupCounts.cardio||0) >= state.routine.length/2;
+  doneExercises.forEach(e=>{ groupCounts[e.group] = (groupCounts[e.group]||0)+1; });
+  const esCardio = doneExercises.length ? (groupCounts.cardio||0) >= doneExercises.length/2 : false;
+
   const weightKg = loadSettings().weightKg || null;
   const calories = computeCalories(state.exerciseLog, state.restSecondsTotal, weightKg);
+
+  const stationsPlanned = state.plan.length;
+  const stationsCompleted = Math.min(stationsPlanned, state.step + 1);
+
   const session = {
     date: today,
     completedAt,
-    exerciseIds: state.routine.map(e=>e.id),
-    exerciseNames: state.routine.map(e=>`${e.name} (${e.sets}×${e.reps})`),
-    groups: [...new Set(state.routine.map(e=>e.group))],
+    exerciseIds: doneExercises.map(e=>e.id),
+    exerciseNames: doneExercises.map(e=>`${e.name} (${e.sets}×${e.reps})`),
+    groups: [...new Set(doneExercises.map(e=>e.group))],
     workoutStyle: state.workoutStyle,
+    stationsCompleted,
+    stationsPlanned,
+    finishedEarly: stationsCompleted < stationsPlanned,
     durationMinutes,
     esCardio,
     calories,
@@ -1190,6 +1249,20 @@ function renderProgress(){
   return `<div class="progress-track">${segs}</div>`;
 }
 
+function renderEndEarlyControl(){
+  if(state.confirmEndEarly){
+    return `
+      <div style="margin-top:10px;padding:12px;background:var(--plate);border-radius:10px;">
+        <p style="font-size:12.5px;color:var(--chalk-dim);margin:0 0 10px;">¿Terminar la rutina ahora? Se guarda lo que llevas hasta aquí, con las calorías calculadas sobre lo que en verdad trabajaste.</p>
+        <div style="display:flex;gap:8px;">
+          <button class="btn-ghost" style="flex:1;color:var(--bad);border-color:var(--bad);" onclick="endWorkoutEarly()">Sí, terminar</button>
+          <button class="btn-ghost" style="flex:1;" onclick="cancelEndEarly()">Seguir entrenando</button>
+        </div>
+      </div>`;
+  }
+  return `<button class="btn-ghost btn-block" style="margin-top:10px;color:var(--chalk-dim);font-size:12.5px;" onclick="requestEndEarly()">Terminar rutina antes de tiempo</button>`;
+}
+
 function renderWorkout(){
   const entry = state.plan[state.step];
   const ex = entry.exercise;
@@ -1207,6 +1280,7 @@ function renderWorkout(){
       <ul class="cues"><li>${ex.desc}</li></ul>
       <div class="timer">${fmt(state.secondsLeft<0?0:state.secondsLeft)}</div>
       <button class="btn-ghost btn-block" onclick="skipStep()">Saltar</button>
+      ${renderEndEarlyControl()}
     </div>
   `;
 }
@@ -1222,16 +1296,18 @@ function renderRest(){
         ? `<div class="next-label">Sigue · Serie ${nextEntry.setNumber} de ${nextEntry.totalSets}</div><div class="next-name">${nextEntry.exercise.name}</div>`
         : `<div class="next-label">Última estación completada</div>`}
       <button class="btn-ghost btn-block" style="margin-top:14px;" onclick="skipStep()">Saltar descanso</button>
+      ${renderEndEarlyControl()}
     </div>
   `;
 }
 
 function renderDone(){
-  const groupsWorked = [...new Set(state.routine.map(e=>e.group))];
+  const s = state.lastSession;
+  const groupsWorked = s ? (s.groups||[]) : [...new Set(state.routine.map(e=>e.group))];
   const stretchItems = groupsWorked.filter(g=>STRETCHES[g]).map(g=>`
     <div class="ex-row"><span><b style="text-transform:capitalize">${g}</b><br><span class="tag">${STRETCHES[g]}</span></span></div>
   `).join('');
-  const calories = state.lastSession ? state.lastSession.calories : null;
+  const calories = s ? s.calories : null;
   const caloriesCard = calories != null
     ? `<div class="card" style="text-align:center;">
         <div class="eyebrow" style="margin-bottom:4px;">Estimado</div>
@@ -1242,11 +1318,17 @@ function renderDone(){
         <p style="color:var(--chalk-dim);font-size:13px;margin:0 0 10px;">Agrega tu peso en Ajustes para ver las calorías estimadas de esta rutina.</p>
         <button class="btn-ghost btn-block" onclick="goTab('ajustes')">⚙️ Ir a Ajustes</button>
       </div>`;
+  const completedNum = s ? s.stationsCompleted : state.routine.length;
+  const plannedNum = s ? s.stationsPlanned : state.routine.length;
+  const earlyNote = s && s.finishedEarly
+    ? `<p style="color:var(--accent);font-size:12.5px;margin-top:4px;">Terminaste antes de tiempo — se guardó lo que alcanzaste a hacer.</p>`
+    : '';
   return `
     <header><div class="eyebrow">¡Terminaste!</div><h1>Buen trabajo 💪</h1></header>
     <div class="card done-screen">
-      <div class="big-num">${state.routine.length}/${state.routine.length}</div>
-      <p>Ejercicios completados y guardados en tu historial.</p>
+      <div class="big-num">${completedNum}/${plannedNum}</div>
+      <p>Estaciones completadas y guardadas en tu historial.</p>
+      ${earlyNote}
     </div>
     ${caloriesCard}
     <div class="card">
@@ -1276,14 +1358,32 @@ function renderHistorial(){
     else break;
   }
 
+  const syncMsg = {
+    idle: '', syncing: '⏳ Borrando en Drive...',
+    ok: '✅ Historial actualizado en Drive', error: '⚠️ No se pudo actualizar Drive, se borró solo en este teléfono'
+  }[state.syncStatus] || '';
+
   const sessionsHtml = history.length === 0
     ? `<div class="empty-state">Aún no hay entrenamientos guardados.<br>Completa tu primera rutina para verla aquí.</div>`
-    : history.map(h=>`
+    : history.map(h=>{
+        const key = sessionKey(h);
+        const early = h.finishedEarly ? ` · terminada antes de tiempo (${h.stationsCompleted}/${h.stationsPlanned})` : '';
+        const deleteControl = state.confirmDeleteKey === key
+          ? `<span class="del-confirm">
+               <button class="del-yes" onclick="deleteHistorySession('${key}')">Sí, borrar</button>
+               <button class="del-no" onclick="cancelDeleteSession()">Cancelar</button>
+             </span>`
+          : `<button class="del-btn" onclick="requestDeleteSession('${key}')">🗑️</button>`;
+        return `
       <div class="session-item">
-        <div class="date">${h.date}${h.calories!=null ? ` · 🔥 ${h.calories} kcal` : ''}</div>
+        <div class="session-item-head">
+          <div class="date">${h.date}${h.calories!=null ? ` · 🔥 ${h.calories} kcal` : ''}${early}</div>
+          ${deleteControl}
+        </div>
         <div class="list">${h.exerciseNames.join(' · ')}</div>
       </div>
-    `).join('');
+    `;
+      }).join('');
 
   return `
     <header><div class="eyebrow">Tu progreso</div><h1>Historial</h1></header>
@@ -1293,6 +1393,7 @@ function renderHistorial(){
       <div class="stat"><div class="num">${streak}</div><div class="lbl">Racha (días)</div></div>
     </div>
     <div class="card">${sessionsHtml}</div>
+    ${syncMsg ? `<p style="text-align:center;font-size:12.5px;color:var(--chalk-dim);margin-top:-4px;">${syncMsg}</p>` : ''}
   `;
 }
 
