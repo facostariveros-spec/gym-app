@@ -4,7 +4,7 @@
    (ver instrucciones al final de este archivo)
    ========================================================= */
 
-const GOOGLE_CLIENT_ID = 'REEMPLAZA_ESTO.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID = '6700070894-7t3k74dlu2htfek4ktmngrr52retralq.apps.googleusercontent.com';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 const BACKUP_FILENAME = 'rutina-gym-backup.json';
 
