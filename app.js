@@ -228,6 +228,69 @@ function saveHealth(h){
   try{ localStorage.setItem(LS_HEALTH, JSON.stringify(h)); }catch(e){}
 }
 
+/* ---------- Helpers de historial: grupos musculares, timestamps, recuperación ---------- */
+const RECOVERY_HOURS = 24; // debajo de esto, avisamos que el grupo quizás no se ha recuperado
+
+function sessionGroups(session){
+  if(session.groups) return session.groups;
+  // sesiones viejas sin campo "groups": lo derivamos de los ejercicios (mejor esfuerzo)
+  if(!session.exerciseIds) return [];
+  const set = new Set();
+  session.exerciseIds.forEach(id=>{
+    const ex = EXERCISES.find(e=>e.id===id);
+    if(ex) set.add(ex.group);
+  });
+  return [...set];
+}
+function sessionTimestamp(session){
+  if(session.completedAt) return new Date(session.completedAt).getTime();
+  if(session.date) return new Date(session.date + 'T12:00:00').getTime(); // sesiones viejas: solo fecha, sin hora
+  return null;
+}
+function hoursSinceGroupTrained(group, history){
+  let best = null;
+  for(const s of history){
+    if(sessionGroups(s).includes(group)){
+      const ts = sessionTimestamp(s);
+      if(ts != null && (best === null || ts > best)) best = ts;
+    }
+  }
+  return best === null ? null : (Date.now() - best) / 3600000;
+}
+function formatHoursAgo(h){
+  if(h == null) return null;
+  if(h < 1) return 'hace <1h';
+  if(h < 48) return `hace ${Math.round(h)}h`;
+  return `hace ${Math.round(h/24)}d`;
+}
+function mergeHistories(localHist, driveHist){
+  const map = new Map();
+  const keyOf = s => (s.completedAt || s.date || '') + '|' + (s.exerciseIds||[]).join(',');
+  (driveHist||[]).forEach(s=> map.set(keyOf(s), s));
+  (localHist||[]).forEach(s=> map.set(keyOf(s), s)); // local gana en empate
+  return [...map.values()].sort((a,b)=> (sessionTimestamp(b)||0) - (sessionTimestamp(a)||0));
+}
+function analyzeForRecommendation(history){
+  if(!history || history.length < 4) return null; // no hay suficiente histórico todavía
+  const stats = MUSCLE_GROUPS.map(m=>{
+    const h = hoursSinceGroupTrained(m.id, history);
+    return { id: m.id, label: m.label, daysSince: h == null ? Infinity : h / 24 };
+  });
+  stats.sort((a,b)=> b.daysSince - a.daysSince);
+  let picks = stats.filter(s => s.daysSince >= 2).slice(0, 3);
+  if(picks.length < 2) picks = stats.slice(0, 2);
+  const finiteDays = picks.map(p=>p.daysSince).filter(d=>isFinite(d));
+  const allNever = finiteDays.length === 0;
+  let detail;
+  if(allNever){
+    detail = 'nunca los has trabajado en tu historial';
+  } else {
+    const minDays = Math.floor(Math.min(...finiteDays));
+    detail = minDays <= 0 ? 'llevas menos de 1 día sin trabajarlos' : `llevas ${minDays} día${minDays===1?'':'s'} sin trabajarlos`;
+  }
+  return { groups: picks.map(p=>p.id), labels: picks.map(p=>p.label), detail };
+}
+
 /* ================= GENERADOR DE RUTINA (evita repetir) ================= */
 function lastUsedDate(exId, history){
   for(const session of history){
@@ -236,14 +299,16 @@ function lastUsedDate(exId, history){
   return null; // nunca usado
 }
 
-function generateRoutine(equipment, muscleGroups){
+function generateRoutine(equipment, muscleGroups, opts){
+  opts = opts || {};
   const history = loadHistory();
   const lastSession = history[0];
   const lastSessionIds = lastSession ? (lastSession.exerciseIds||[]) : [];
 
   const picked = [];
   const order = ['piernas','pecho','espalda','hombros','brazos','core','cardio'];
-  const groupsToUse = order.filter(g => muscleGroups.includes(g));
+  let groupsToUse = order.filter(g => muscleGroups.includes(g));
+  if(opts.maxStations) groupsToUse = groupsToUse.slice(0, opts.maxStations);
 
   groupsToUse.forEach(group=>{
     let candidates = EXERCISES.filter(ex =>
@@ -281,7 +346,10 @@ let state = {
   step: 0,
   secondsLeft: WORK,
   workSeconds: WORK,        // segundos de trabajo de la sesión (se ajusta según Apple Health)
+  maxStations: null,        // límite de estaciones si la intensidad está reducida
   intensityNote: '',
+  driveRecommendation: null,  // { groups, labels, detail } basado en historial completo de Drive
+  driveRecStatus: 'idle',     // idle | loading | ready | unavailable
   startedAt: null,
   lastSession: null,
   healthLogStatus: 'idle',  // idle | ok
@@ -337,6 +405,30 @@ function autoSyncIfConnected(){
   const payload = { settings: loadSettings(), history: loadHistory(), savedAt: new Date().toISOString() };
   DriveSync.upload(payload).catch(e=>console.error('auto-sync falló', e));
 }
+function fetchDriveRecommendation(){
+  if(typeof DriveSync === 'undefined' || !DriveSync.connected) return;
+  if(state.driveRecStatus === 'loading' || state.driveRecStatus === 'ready') return; // ya en curso o ya lista
+  state.driveRecStatus = 'loading';
+  DriveSync.connect(async ()=>{
+    try{
+      const data = await DriveSync.download();
+      const driveHist = (data && data.history) || [];
+      const merged = mergeHistories(loadHistory(), driveHist);
+      const rec = analyzeForRecommendation(merged);
+      state.driveRecommendation = rec;
+      state.driveRecStatus = rec ? 'ready' : 'unavailable';
+    }catch(e){
+      console.error('No se pudo traer historial de Drive para la recomendación', e);
+      state.driveRecStatus = 'unavailable';
+    }
+    render();
+  });
+}
+function useRecommendation(){
+  if(!state.driveRecommendation) return;
+  state.muscleGroups = [...state.driveRecommendation.groups];
+  render();
+}
 
 function initState(){
   const settings = loadSettings();
@@ -387,16 +479,17 @@ function openHealthLogShortcut(){
   window.location.href = buildHealthLogUrl(payload);
 }
 function computeIntensity(health){
-  if(!health) return { workSeconds: WORK, note: '' };
+  if(!health) return { workSeconds: WORK, maxStations: null, note: '' };
   const lowSleep = typeof health.sleepHours === 'number' && health.sleepHours < 6;
   const highHR = typeof health.restingHR === 'number' && health.restingHR > 75;
-  if(!lowSleep && !highHR) return { workSeconds: WORK, note: '' };
+  if(!lowSleep && !highHR) return { workSeconds: WORK, maxStations: null, note: '' };
   const reasons = [];
   if(lowSleep) reasons.push(`dormiste ${health.sleepHours.toFixed(1)}h`);
   if(highHR) reasons.push(`tu FC en reposo (${health.restingHR} bpm) está algo alta`);
   return {
     workSeconds: Math.max(25, WORK - 10),
-    note: `Intensidad ajustada hoy: ${reasons.join(' y ')}. Agrega 5 min de calentamiento extra antes de empezar.`
+    maxStations: 4,
+    note: `Intensidad ajustada hoy: ${reasons.join(' y ')}. Rutina más corta (máx. 4 estaciones) y series más breves — agrega 5 min de calentamiento extra.`
   };
 }
 function handleShortcutCallback(){
@@ -442,6 +535,7 @@ function toggleEquip(id){
 function confirmEquip(){
   saveSettings({ equipment: state.equipment });
   state.screen = 'muscles';
+  fetchDriveRecommendation();
   render();
 }
 function toggleMuscle(id){
@@ -451,15 +545,16 @@ function toggleMuscle(id){
 }
 function confirmMuscles(){
   if(state.muscleGroups.length === 0){ return; }
-  state.routine = generateRoutine(state.equipment, state.muscleGroups);
   const intensity = computeIntensity(state.health);
   state.workSeconds = intensity.workSeconds;
+  state.maxStations = intensity.maxStations;
   state.intensityNote = intensity.note;
+  state.routine = generateRoutine(state.equipment, state.muscleGroups, { maxStations: state.maxStations });
   state.screen = 'overview';
   render();
 }
 function regenerate(){
-  state.routine = generateRoutine(state.equipment, state.muscleGroups);
+  state.routine = generateRoutine(state.equipment, state.muscleGroups, { maxStations: state.maxStations });
   render();
 }
 function backToEquip(){ state.screen='equip'; render(); }
@@ -506,6 +601,7 @@ function skipStep(){
 }
 function finishWorkout(){
   const today = new Date().toISOString().slice(0,10);
+  const completedAt = new Date().toISOString();
   const durationMinutes = state.startedAt
     ? Math.max(1, Math.round((Date.now()-state.startedAt)/60000))
     : Math.round(state.routine.length*(state.workSeconds+REST)/60);
@@ -514,8 +610,10 @@ function finishWorkout(){
   const esCardio = (groupCounts.cardio||0) >= state.routine.length/2;
   const session = {
     date: today,
+    completedAt,
     exerciseIds: state.routine.map(e=>e.id),
     exerciseNames: state.routine.map(e=>e.name),
+    groups: [...new Set(state.routine.map(e=>e.group))],
     durationMinutes,
     esCardio,
   };
@@ -530,6 +628,9 @@ function newRoutine(){
   clearTimer();
   state.screen = 'equip';
   state.step = 0;
+  // el historial cambió (se acaba de guardar/subir una sesión) — refresca la recomendación de Drive
+  state.driveRecommendation = null;
+  state.driveRecStatus = 'idle';
   render();
 }
 function goTab(tab){
@@ -591,13 +692,46 @@ function renderEquip(){
   `;
 }
 
+function renderDriveRecommendation(){
+  if(state.driveRecStatus === 'loading'){
+    return `<div class="card" style="padding:12px 14px;"><p style="font-size:12.5px;color:var(--chalk-dim);margin:0;">📊 Revisando tu historial en Drive...</p></div>`;
+  }
+  if(state.driveRecStatus === 'ready' && state.driveRecommendation){
+    const rec = state.driveRecommendation;
+    return `
+      <div class="card" style="border-color:var(--accent);padding:14px;">
+        <p style="font-size:11.5px;letter-spacing:1px;text-transform:uppercase;color:var(--chalk-dim);margin:0 0 8px;">📊 Basado en tu historial (Drive)</p>
+        <p style="font-size:17px;font-weight:800;margin:0 0 4px;">Te recomendamos hoy: ${rec.labels.join(' y ')}</p>
+        <p style="font-size:12.5px;color:var(--chalk-dim);margin:0 0 12px;">${rec.detail}</p>
+        <button class="btn-ghost btn-block" style="border-color:var(--accent);color:var(--accent);" onclick="useRecommendation()">Usar esta recomendación</button>
+      </div>`;
+  }
+  return '';
+}
+
 function renderMuscles(){
+  const history = loadHistory();
   const items = MUSCLE_GROUPS.map(m=>{
     const sel = state.muscleGroups.includes(m.id);
+    const hrs = hoursSinceGroupTrained(m.id, history);
+    const warn = hrs != null && hrs < RECOVERY_HOURS;
+    const badge = warn ? `<div class="recovery-badge">⚠️ ${formatHoursAgo(hrs)}</div>` : '';
     return `<div class="equip-item ${sel?'selected':''}" onclick="toggleMuscle('${m.id}')">
-      <span class="icon">${m.icon}</span><span class="label">${m.label}</span>
+      <span class="icon">${m.icon}</span><span class="label">${m.label}</span>${badge}
     </div>`;
   }).join('');
+
+  const selectedWarnings = MUSCLE_GROUPS.filter(m=>{
+    if(!state.muscleGroups.includes(m.id)) return false;
+    const hrs = hoursSinceGroupTrained(m.id, history);
+    return hrs != null && hrs < RECOVERY_HOURS;
+  });
+  const recoveryNote = selectedWarnings.length
+    ? `<div class="card" style="border-color:var(--bad);padding:12px 14px;">
+        <p style="font-size:12.5px;color:var(--chalk-dim);margin:0;">⚠️ ${selectedWarnings.map(m=>`${m.label} ${formatHoursAgo(hoursSinceGroupTrained(m.id,history))}`).join(', ')} — quizás no se ha recuperado del todo. Puedes continuar si te sientes bien.</p>
+      </div>`
+    : '';
+
   const healthStatus = state.health
     ? `🍏 Sueño ${state.health.sleepHours!=null?state.health.sleepHours.toFixed(1)+'h':'—'} · FC reposo ${state.health.restingHR!=null?state.health.restingHR+' bpm':'—'} <span style="opacity:.6;">(${timeAgo(state.health.syncedAt)})</span>`
     : 'Aún no sincronizado hoy';
@@ -607,7 +741,9 @@ function renderMuscles(){
       <h1>¿Qué te sientes en condición de trabajar?</h1>
       <div class="sub">Desmarca zonas con fatiga o molestia</div>
     </header>
+    ${renderDriveRecommendation()}
     <div class="equip-grid">${items}</div>
+    ${recoveryNote}
     <button class="btn-ghost btn-block" onclick="openHealthSyncShortcut()">🍏 Sincronizar con Apple Health</button>
     <p style="text-align:center;font-size:12.5px;color:var(--chalk-dim);margin:8px 0 4px;">${healthStatus}</p>
     <button class="btn-primary btn-block" style="margin-top:10px;" onclick="confirmMuscles()">Generar rutina</button>
