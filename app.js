@@ -227,6 +227,73 @@ const STRETCHES = {
   cardio: 'Camina 1-2 min a paso lento para bajar el ritmo cardiaco antes de estirar.',
 };
 
+/* ---------- Peso por ejercicio: unidad, conversión, sugerencia ---------- */
+const KG_PER_LB = 0.45359237;
+function kgToLb(kg){ return kg / KG_PER_LB; }
+function lbToKg(lb){ return lb * KG_PER_LB; }
+function getWeightUnit(){ return loadSettings().weightUnit === 'lb' ? 'lb' : 'kg'; }
+// Redondea bonito para mostrar: kg al 0.5 más cercano, lb al entero más cercano.
+function formatWeight(kg, unit){
+  if(kg == null) return null;
+  unit = unit || getWeightUnit();
+  if(unit === 'lb'){
+    return `${Math.round(kgToLb(kg))} lb`;
+  }
+  return `${(Math.round(kg*2)/2).toFixed(1).replace(/\.0$/,'')} kg`;
+}
+// Incremento del stepper de peso, en la unidad activa, convertido a kg (para que el stepper
+// suba en pasos "redondos" — 2.5kg si estás en kg, 5lb si estás en lb — sin arrastre por conversión.
+function weightStepKg(unit){
+  unit = unit || getWeightUnit();
+  return unit === 'lb' ? lbToKg(5) : 2.5;
+}
+
+// Equipo que implica carga externa real (no bodyweight, no banda, no cardio).
+const WEIGHT_EQUIPMENT = ['barbell_rack','dumbbells','kettlebell','cable_machine','leg_machine'];
+function exerciseHasWeight(ex){
+  return ex.equip.some(eq => WEIGHT_EQUIPMENT.includes(eq));
+}
+// Peso inicial conservador por tipo de equipo, para la primera vez que se hace un ejercicio.
+const STARTING_WEIGHT_KG = {
+  barbell_rack: 20,   // barra olímpica vacía
+  dumbbells: 5,       // por mano
+  kettlebell: 8,
+  cable_machine: 10,
+  leg_machine: 15,
+};
+const WEIGHT_INCREMENT_KG = 2.5;
+const FEEDBACK_OPTIONS = [
+  { id: 'facil',  icon: '😊', label: 'Fácil' },
+  { id: 'normal', icon: '👍', label: 'Bien' },
+  { id: 'duro',   icon: '😓', label: 'Muy duro' },
+];
+
+function startingWeightKgFor(ex, bodyWeightKg){
+  const primaryEquip = WEIGHT_EQUIPMENT.find(eq => ex.equip.includes(eq));
+  let base = STARTING_WEIGHT_KG[primaryEquip] || 10;
+  if(ex.group === 'piernas' && primaryEquip !== 'cable_machine' && primaryEquip !== 'leg_machine' && bodyWeightKg){
+    const scaled = Math.round((bodyWeightKg * 0.3) / 2.5) * 2.5;
+    base = Math.max(base, scaled);
+  }
+  return base;
+}
+// Busca la sesión más reciente con peso registrado para este ejercicio y decide el peso de hoy.
+function suggestWeightFor(exId, ex, history, bodyWeightKg){
+  for(const s of history){
+    const w = s.exerciseWeights && s.exerciseWeights[exId];
+    if(typeof w === 'number'){
+      const doneSets = (s.exerciseSetsCompleted && s.exerciseSetsCompleted[exId]) || 0;
+      const plannedSets = (s.exercisePlannedSets && s.exercisePlannedSets[exId]) || 0;
+      const completed = plannedSets > 0 && doneSets >= plannedSets;
+      const feedback = s.exerciseFeedback && s.exerciseFeedback[exId];
+      let suggested = w;
+      if(completed && feedback === 'facil') suggested = w + WEIGHT_INCREMENT_KG;
+      return { lastKg: w, suggestedKg: suggested, isFirstTime: false };
+    }
+  }
+  return { lastKg: null, suggestedKg: startingWeightKgFor(ex, bodyWeightKg), isFirstTime: true };
+}
+
 /* ================= STORAGE (localStorage, offline) ================= */
 const LS_SETTINGS = 'rutina-gym:settings';
 const LS_HISTORY  = 'rutina-gym:history';
@@ -459,6 +526,15 @@ function generateRoutine(equipment, muscleGroups, opts){
     // copia superficial: el usuario puede editar series/reps de la rutina de hoy sin tocar EXERCISES
     const ex = { ...pool[0] };
     if(setsAdjust) ex.sets = Math.min(6, Math.max(1, (ex.sets||1) + setsAdjust));
+    if(exerciseHasWeight(ex)){
+      const bodyWeightKg = loadSettings().weightKg || null;
+      const sugg = suggestWeightFor(ex.id, ex, history, bodyWeightKg);
+      ex.weightKg = sugg.suggestedKg;
+      ex.lastWeightKg = sugg.lastKg;
+      ex.isFirstTimeWeight = sugg.isFirstTime;
+    } else {
+      ex.weightKg = null;
+    }
     picked.push(ex);
   });
 
@@ -520,6 +596,7 @@ let state = {
   dashboard: null,          // { source, updatedAt, stats, windowCounts, daysSince, neglected }
   lastSession: null,
   healthLogStatus: 'idle',  // idle | ok
+  feedbackSaveStatus: 'idle', // idle | ok — feedback de "¿cómo se sintió?" por ejercicio en el done screen
   health: null,             // { sleepHours, restingHR, syncedAt }
   timerId: null,
   syncStatus: 'idle',       // idle | syncing | ok | error
@@ -811,6 +888,22 @@ function updateLastHistorySessionCalories(cal){
     try{ localStorage.setItem(LS_HISTORY, JSON.stringify(h)); }catch(e){}
   }
 }
+// Guarda cómo se sintió un ejercicio (para afinar la sugerencia de peso la próxima vez).
+// Opcional: si no se toca, la próxima sugerencia simplemente mantiene el mismo peso.
+function saveExerciseFeedback(exerciseId, value){
+  if(!state.lastSession) return;
+  if(!state.lastSession.exerciseFeedback) state.lastSession.exerciseFeedback = {};
+  state.lastSession.exerciseFeedback[exerciseId] = value;
+  const h = loadHistory();
+  if(h.length && h[0].completedAt === state.lastSession.completedAt){
+    if(!h[0].exerciseFeedback) h[0].exerciseFeedback = {};
+    h[0].exerciseFeedback[exerciseId] = value;
+    try{ localStorage.setItem(LS_HISTORY, JSON.stringify(h)); }catch(e){}
+  }
+  state.feedbackSaveStatus = 'ok';
+  autoSyncIfConnected();
+  render();
+}
 
 function clearTimer(){ if(state.timerId){ clearInterval(state.timerId); state.timerId=null; } }
 
@@ -906,6 +999,20 @@ function adjustSets(i, delta){
   const ex = state.routine[i];
   if(!ex) return;
   ex.sets = Math.min(6, Math.max(1, (ex.sets||1) + delta));
+  render();
+}
+function adjustWeight(i, sign){
+  const ex = state.routine[i];
+  if(!ex || ex.weightKg == null) return;
+  ex.weightKg = Math.max(0, ex.weightKg + sign*weightStepKg());
+  render();
+}
+// Ajuste "en vivo" durante el entrenamiento — muta el mismo objeto que ya usan las
+// estaciones restantes de este ejercicio en state.plan, así que se propaga solo.
+function adjustCurrentWeight(sign){
+  const entry = state.plan[state.step];
+  if(!entry || entry.exercise.weightKg == null) return;
+  entry.exercise.weightKg = Math.max(0, entry.exercise.weightKg + sign*weightStepKg());
   render();
 }
 function setWorkoutStyle(style){
@@ -1007,11 +1114,21 @@ function finishWorkout(){
   doneExercises.forEach(e=>{ groupCounts[e.group] = (groupCounts[e.group]||0)+1; });
   const esCardio = doneExercises.length ? (groupCounts.cardio||0) >= doneExercises.length/2 : false;
 
-  const weightKg = loadSettings().weightKg || null;
-  const calories = computeCalories(state.exerciseLog, state.restSecondsTotal, weightKg);
+  const bodyWeightKg = loadSettings().weightKg || null;
+  const calories = computeCalories(state.exerciseLog, state.restSecondsTotal, bodyWeightKg);
 
   const stationsPlanned = state.plan.length;
   const stationsCompleted = Math.min(stationsPlanned, state.step + 1);
+
+  // peso usado y series realmente completadas por ejercicio (para la sugerencia de la próxima vez)
+  const exerciseSetsCompleted = {};
+  state.exerciseLog.forEach(e=>{ exerciseSetsCompleted[e.id] = (exerciseSetsCompleted[e.id]||0) + 1; });
+  const exerciseWeights = {};
+  const exercisePlannedSets = {};
+  doneExercises.forEach(e=>{
+    if(e.weightKg != null) exerciseWeights[e.id] = e.weightKg;
+    exercisePlannedSets[e.id] = e.sets;
+  });
 
   const session = {
     date: today,
@@ -1026,12 +1143,16 @@ function finishWorkout(){
     durationMinutes,
     esCardio,
     calories,
+    exerciseWeights,
+    exerciseSetsCompleted,
+    exercisePlannedSets,
   };
   saveHistorySession(session);
   autoSyncIfConnected();
   state.dashboardStatus = 'idle'; state.dashboard = null; // el historial cambió, recalcular al volver a entrar
   state.lastSession = session;
   state.healthLogStatus = 'idle';
+  state.feedbackSaveStatus = 'idle';
   state.screen = 'done';
   render();
 }
@@ -1056,12 +1177,18 @@ function goTab(tab){
 function saveWeight(){
   const input = document.getElementById('weightInput');
   const val = input ? parseFloat(input.value) : NaN;
-  if(!isNaN(val) && val >= 30 && val <= 300){
-    saveSettings({ ...loadSettings(), weightKg: val });
+  const unit = getWeightUnit();
+  const kg = isNaN(val) ? NaN : (unit === 'lb' ? lbToKg(val) : val);
+  if(!isNaN(kg) && kg >= 30 && kg <= 300){
+    saveSettings({ ...loadSettings(), weightKg: kg });
     state.weightSaveStatus = 'ok';
   } else {
     state.weightSaveStatus = 'error';
   }
+  render();
+}
+function setWeightUnit(unit){
+  saveSettings({ ...loadSettings(), weightUnit: unit });
   render();
 }
 
@@ -1278,6 +1405,15 @@ function renderOverview(){
         <button class="stepper" onclick="adjustSets(${i},1)">+</button>
       </span>
     </div>
+    ${ex.weightKg != null ? `
+    <div class="ex-row" style="border-top:none;padding-top:0;">
+      <span style="font-size:11.5px;color:var(--chalk-dim);">${ex.isFirstTimeWeight ? 'Primera vez — empezamos conservador' : `Última vez: ${formatWeight(ex.lastWeightKg)}`}</span>
+      <span class="sets-editor">
+        <button class="stepper" onclick="adjustWeight(${i},-1)">−</button>
+        <span class="sets-val">${formatWeight(ex.weightKg)}</span>
+        <button class="stepper" onclick="adjustWeight(${i},1)">+</button>
+      </span>
+    </div>` : ''}
   `).join('');
   const skippedNote = state.skippedGroups && state.skippedGroups.length
     ? ' ⚠️ ' + state.skippedGroups.map(g=>{
@@ -1357,6 +1493,12 @@ function renderWorkout(){
       <div class="stage-label"><span>En curso</span><span class="round">${ex.group}</span></div>
       <div class="ex-name">${ex.name}</div>
       <div class="ex-reps-big">Serie ${entry.setNumber} de ${entry.totalSets} · ${ex.reps}</div>
+      ${ex.weightKg != null ? `
+      <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin:-4px 0 14px;">
+        <button class="stepper" onclick="adjustCurrentWeight(-1)">−</button>
+        <span style="font-size:18px;font-weight:800;color:var(--accent);">${formatWeight(ex.weightKg)}</span>
+        <button class="stepper" onclick="adjustCurrentWeight(1)">+</button>
+      </div>` : ''}
       ${renderIllustration(ex)}
       <ul class="cues"><li>${ex.desc}</li></ul>
       <div class="timer">${fmt(state.secondsLeft<0?0:state.secondsLeft)}</div>
@@ -1404,6 +1546,23 @@ function renderDone(){
   const earlyNote = s && s.finishedEarly
     ? `<p style="color:var(--accent);font-size:12.5px;margin-top:4px;">Terminaste antes de tiempo — se guardó lo que alcanzaste a hacer.</p>`
     : '';
+  const weightedIds = s ? Object.keys(s.exerciseWeights||{}) : [];
+  const feedbackCard = weightedIds.length ? `
+    <div class="card">
+      <div class="eyebrow" style="margin-bottom:8px;">¿Cómo se sintió el peso?</div>
+      ${weightedIds.map(id=>{
+        const exInfo = EXERCISES.find(e=>e.id===id);
+        const name = exInfo ? exInfo.name : id;
+        const current = (s.exerciseFeedback && s.exerciseFeedback[id]) || null;
+        const opts = FEEDBACK_OPTIONS.map(f=>`
+          <button class="stepper" style="width:auto;padding:6px 10px;${current===f.id?'border-color:var(--accent);color:var(--accent);':''}" onclick="saveExerciseFeedback('${id}','${f.id}')">${f.icon} ${f.label}</button>
+        `).join('');
+        return `<div class="ex-row" style="flex-direction:column;align-items:flex-start;gap:8px;">
+          <span>${name} <span class="tag">${formatWeight(s.exerciseWeights[id])}</span></span>
+          <div style="display:flex;gap:6px;">${opts}</div>
+        </div>`;
+      }).join('')}
+    </div>` : '';
   return `
     <header><div class="eyebrow">¡Terminaste!</div><h1>Buen trabajo 💪</h1></header>
     <div class="card done-screen">
@@ -1416,6 +1575,7 @@ function renderDone(){
       <div class="eyebrow" style="margin-bottom:8px;">Estiramientos sugeridos</div>
       ${stretchItems}
     </div>
+    ${feedbackCard}
     <button class="btn-ghost btn-block" onclick="openHealthLogShortcut()">🍎 Registrar en Apple Health</button>
     ${state.healthLogStatus==='ok' ? '<p style="text-align:center;font-size:13px;margin-top:8px;color:var(--good);">✅ Enviado a Shortcuts</p>' : ''}
     <div style="height:10px;"></div>
@@ -1521,13 +1681,20 @@ function renderHistorial(){
                <button class="del-no" onclick="cancelDeleteSession()">Cancelar</button>
              </span>`
           : `<button class="del-btn" onclick="requestDeleteSession('${key}')">🗑️</button>`;
+        const weights = h.exerciseWeights || {};
+        const namesWithWeight = (h.exerciseIds && h.exerciseIds.length === h.exerciseNames.length)
+          ? h.exerciseNames.map((name,idx)=>{
+              const w = weights[h.exerciseIds[idx]];
+              return w != null ? `${name} @ ${formatWeight(w)}` : name;
+            })
+          : h.exerciseNames;
         return `
       <div class="session-item">
         <div class="session-item-head">
           <div class="date">${h.date}${h.calories!=null ? ` · 🔥 ${h.calories} kcal` : ''}${early}</div>
           ${deleteControl}
         </div>
-        <div class="list">${h.exerciseNames.join(' · ')}</div>
+        <div class="list">${namesWithWeight.join(' · ')}</div>
       </div>
     `;
       }).join('');
@@ -1586,16 +1753,28 @@ function renderNube(){
 
 function renderAjustes(){
   const settings = loadSettings();
+  const unit = getWeightUnit();
   const weightMsg = {
     ok: '<p style="text-align:center;font-size:13px;margin-top:10px;color:var(--good);">✅ Peso guardado</p>',
-    error: '<p style="text-align:center;font-size:13px;margin-top:10px;color:var(--bad);">⚠️ Ingresa un peso válido (30-300 kg)</p>',
+    error: '<p style="text-align:center;font-size:13px;margin-top:10px;color:var(--bad);">⚠️ Ingresa un peso válido</p>',
   }[state.weightSaveStatus] || '';
+  const displayWeight = settings.weightKg
+    ? (unit === 'lb' ? Math.round(kgToLb(settings.weightKg)) : settings.weightKg)
+    : '';
   return `
     <header><div class="eyebrow">Ajustes</div><h1>Tu perfil</h1></header>
     <div class="card">
-      <label style="display:block;font-size:12.5px;color:var(--chalk-dim);margin-bottom:8px;">Peso corporal aproximado (kg)</label>
-      <input id="weightInput" type="number" inputmode="decimal" min="30" max="300" step="0.5"
-        placeholder="ej. 70" value="${settings.weightKg || ''}"
+      <div class="eyebrow" style="margin-bottom:8px;">Unidad de peso</div>
+      <div class="style-toggle" style="margin-bottom:14px;">
+        <button class="style-opt ${unit==='kg'?'active':''}" onclick="setWeightUnit('kg')">Kilogramos (kg)</button>
+        <button class="style-opt ${unit==='lb'?'active':''}" onclick="setWeightUnit('lb')">Libras (lb)</button>
+      </div>
+      <p style="color:var(--chalk-dim);font-size:12px;line-height:1.5;margin:0 0 16px;">
+        Se usa en las sugerencias de peso por ejercicio, el entrenamiento y el historial. Internamente todo se guarda en kg, así que cambiar esto no borra ni duplica nada — solo cambia cómo se ve.
+      </p>
+      <label style="display:block;font-size:12.5px;color:var(--chalk-dim);margin-bottom:8px;">Peso corporal aproximado (${unit})</label>
+      <input id="weightInput" type="number" inputmode="decimal" step="0.5"
+        placeholder="${unit==='lb'?'ej. 154':'ej. 70'}" value="${displayWeight}"
         style="width:100%;background:var(--plate);border:1px solid var(--line);border-radius:10px;color:var(--chalk);font-size:16px;padding:12px 14px;margin-bottom:12px;">
       <button class="btn-primary btn-block" onclick="saveWeight()">Guardar peso</button>
       ${weightMsg}
