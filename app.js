@@ -647,8 +647,12 @@ function restoreFromDrive(){
 }
 function autoSyncIfConnected(){
   if(typeof DriveSync === 'undefined' || !DriveSync.connected) return;
-  const payload = { settings: loadSettings(), history: loadHistory(), savedAt: new Date().toISOString() };
-  DriveSync.upload(payload).catch(e=>console.error('auto-sync falló', e));
+  // Pasa por connect() para renovar el token si hace falta (p.ej. tras recargar la página) —
+  // llamar a upload() directo fallaba en silencio cada vez que el token no estaba fresco en memoria.
+  DriveSync.connect(()=>{
+    const payload = { settings: loadSettings(), history: loadHistory(), savedAt: new Date().toISOString() };
+    DriveSync.upload(payload).catch(e=>console.error('auto-sync falló', e));
+  });
 }
 function fetchDriveRecommendation(){
   if(typeof DriveSync === 'undefined' || !DriveSync.connected) return;

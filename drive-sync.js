@@ -7,6 +7,11 @@
 const GOOGLE_CLIENT_ID = '6700070894-7t3k74dlu2htfek4ktmngrr52retralq.apps.googleusercontent.com';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 const BACKUP_FILENAME = 'rutina-gym-backup.json';
+// Google Identity Services no da refresh token en el navegador: el access token dura ~1h y
+// vive solo en memoria. Lo único que persistimos es "el usuario ya dio consentimiento antes",
+// para poder pedir un token nuevo en silencio (sin popup) en vez de mostrar "desconectado"
+// cada vez que la página se recarga (cosa que ahora pasa seguido por los rebotes con Shortcuts).
+const DRIVE_CONNECTED_KEY = 'rutina-gym:drive-connected';
 
 const DriveSync = {
   tokenClient: null,
@@ -17,6 +22,7 @@ const DriveSync = {
   lastSync: null,
 
   init(onReady){
+    try{ DriveSync.connected = localStorage.getItem(DRIVE_CONNECTED_KEY) === '1'; }catch(e){}
     // Espera a que la librería de Google esté cargada
     const check = setInterval(()=>{
       if(window.google && google.accounts && google.accounts.oauth2){
@@ -25,10 +31,17 @@ const DriveSync = {
           client_id: GOOGLE_CLIENT_ID,
           scope: DRIVE_SCOPE,
           callback: (resp)=>{
-            if(resp.error){ console.error('Auth error', resp); return; }
+            if(resp.error){
+              console.error('Auth error', resp);
+              DriveSync.connected = false;
+              try{ localStorage.removeItem(DRIVE_CONNECTED_KEY); }catch(e){}
+              DriveSync._pendingAction = null;
+              return;
+            }
             DriveSync.accessToken = resp.access_token;
             DriveSync.tokenExpiresAt = Date.now() + (resp.expires_in*1000);
             DriveSync.connected = true;
+            try{ localStorage.setItem(DRIVE_CONNECTED_KEY, '1'); }catch(e){}
             if(DriveSync._pendingAction){
               const action = DriveSync._pendingAction;
               DriveSync._pendingAction = null;
@@ -59,6 +72,7 @@ const DriveSync = {
     DriveSync.accessToken = null;
     DriveSync.connected = false;
     DriveSync.fileId = null;
+    try{ localStorage.removeItem(DRIVE_CONNECTED_KEY); }catch(e){}
   },
 
   async _findFileId(){
