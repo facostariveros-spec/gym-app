@@ -1199,7 +1199,19 @@ function setWeightUnit(unit){
 /* ================= RENDER ================= */
 function render(){
   const app = document.getElementById('app');
+  // Si el usuario está escribiendo en el campo de peso corporal, un re-render de fondo
+  // (p.ej. una sincronización de Drive resolviendo) no debe borrarle lo que ya tecleó.
+  const active = document.activeElement;
+  const preserve = (active && active.id === 'weightInput') ? { value: active.value, start: active.selectionStart, end: active.selectionEnd } : null;
   app.innerHTML = renderContent() + renderTabbar();
+  if(preserve){
+    const el = document.getElementById('weightInput');
+    if(el){
+      el.value = preserve.value;
+      el.focus();
+      if(el.setSelectionRange && preserve.start != null) el.setSelectionRange(preserve.start, preserve.end);
+    }
+  }
 }
 
 function renderTabbar(){
