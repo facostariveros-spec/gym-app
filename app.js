@@ -1810,7 +1810,9 @@ function renderAjustes(){
 }
 
 /* ================= INICIO ================= */
-handleShortcutCallback();
+// Red de seguridad: un error inesperado al procesar el regreso de un Shortcut
+// nunca debe dejar la pantalla en blanco — siempre se intenta dibujar algo.
+try{ handleShortcutCallback(); }catch(e){ console.error('handleShortcutCallback falló', e); }
 render();
 
 /* Registrar service worker para funcionamiento offline */

@@ -49,6 +49,13 @@ const DriveSync = {
             }
           }
         });
+        // Si algo llamó a connect() antes de que esta librería terminara de cargar
+        // (pasa justo al volver de un Shortcut, donde el callback corre casi al instante),
+        // ya no quedó tronando — retoma la solicitud ahora que el cliente ya existe.
+        if(DriveSync._requestPending){
+          DriveSync._requestPending = false;
+          DriveSync.tokenClient.requestAccessToken({ prompt: DriveSync.connected ? '' : 'consent' });
+        }
         if(onReady) onReady();
       }
     }, 200);
@@ -62,6 +69,11 @@ const DriveSync = {
   connect(callback){
     if(DriveSync.isTokenValid()){ if(callback) callback(); return; }
     DriveSync._pendingAction = callback || function(){};
+    if(!DriveSync.tokenClient){
+      // La librería de Google todavía no cargó — no truena, espera a que init() la retome.
+      DriveSync._requestPending = true;
+      return;
+    }
     DriveSync.tokenClient.requestAccessToken({ prompt: DriveSync.connected ? '' : 'consent' });
   },
 
