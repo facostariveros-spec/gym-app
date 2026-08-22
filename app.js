@@ -771,18 +771,24 @@ function openHealthSyncShortcut(){
     + `&x-success=${successUrl}&x-cancel=${cancelUrl}`;
   window.location.href = url;
 }
-function buildHealthLogUrl(payload){
+// sessionId: sessionKey() de la sesión que se está registrando (para poder encontrarla
+// exacta al volver, no solo asumir "la más reciente"). returnTab: 'done' | 'historial'.
+function buildHealthLogUrl(payload, sessionId, returnTab){
   const text = encodeURIComponent(JSON.stringify(payload));
-  const successUrl = encodeURIComponent(appBaseUrl() + '?xcb=log_success');
-  const cancelUrl  = encodeURIComponent(appBaseUrl() + '?xcb=log_cancel');
+  const sidPart = sessionId ? `&sid=${encodeURIComponent(sessionId)}` : '';
+  const fromPart = returnTab ? `&from=${encodeURIComponent(returnTab)}` : '';
+  const successUrl = encodeURIComponent(appBaseUrl() + `?xcb=log_success${sidPart}${fromPart}`);
+  const cancelUrl  = encodeURIComponent(appBaseUrl() + `?xcb=log_cancel${sidPart}${fromPart}`);
   const url = `shortcuts://x-callback-url/run-shortcut?name=${encodeURIComponent(HEALTH_LOG_SHORTCUT)}`
     + `&input=text&text=${text}&x-success=${successUrl}&x-cancel=${cancelUrl}`;
   console.log('[Apple Health] JSON enviado:', JSON.stringify(payload));
   console.log('[Apple Health] URL completa:', url);
   return url;
 }
-function openHealthLogShortcut(){
-  const s = state.lastSession;
+// session (opcional): registra esa sesión específica en vez de la última (usado desde Historial).
+// returnTab (opcional): a qué pantalla volver al regresar de Shortcuts ('done' por defecto).
+function openHealthLogShortcut(session, returnTab){
+  const s = session || state.lastSession;
   if(!s) return;
   const restingHR = state.health ? state.health.restingHR : null;
   const payload = {
@@ -792,7 +798,13 @@ function openHealthLogShortcut(){
     baselineCalories: s.calories || 0,
     restingHR: restingHR || 0,
   };
-  window.location.href = buildHealthLogUrl(payload);
+  window.location.href = buildHealthLogUrl(payload, sessionKey(s), returnTab || 'done');
+}
+// Busca una sesión del historial por su sessionKey() y abre el Shortcut de registro para ella.
+function registerHistorySessionToHealth(key){
+  const session = loadHistory().find(s => sessionKey(s) === key);
+  if(!session) return;
+  openHealthLogShortcut(session, 'historial');
 }
 // Consolida las 3 señales del check-in (cómo te sientes, dolor por zona, Apple Health)
 // en UN nivel de intensidad para toda la sesión. "Suave" gana si hay conflicto entre
@@ -867,7 +879,9 @@ function handleShortcutCallback(){
       }catch(e){ console.error('No se pudo leer el resultado del Shortcut', e); }
     }
   } else if(xcb === 'log_success'){
-    restoreLastSessionForDone();
+    const sid = params.get('sid');
+    const from = params.get('from') || 'done';
+    restoreSessionAfterHealthLog(sid, from);
     const raw = params.get('result');
     if(raw && state.lastSession){
       try{
@@ -878,10 +892,15 @@ function handleShortcutCallback(){
           const baseline = state.lastSession.calories || cal;
           cal = Math.round(Math.min(baseline * 3, Math.max(baseline * 0.5, cal)));
           state.lastSession.calories = cal;
-          updateLastHistorySessionCalories(cal);
-          autoSyncIfConnected();
         }
       }catch(e){ console.error('No se pudo leer las calorías ajustadas por FC', e); }
+    }
+    if(state.lastSession){
+      updateHistorySession(sessionKey(state.lastSession), s=>{
+        if(state.lastSession.calories != null) s.calories = state.lastSession.calories;
+        s.healthLogged = true;
+      });
+      autoSyncIfConnected();
     }
     state.healthLogStatus = 'ok';
   } else if(xcb === 'log_cancel'){
@@ -889,26 +908,39 @@ function handleShortcutCallback(){
     // Tus datos ya estaban guardados en el historial ANTES de abrir Shortcuts —
     // solo restauramos la pantalla para que se vea, en vez de dejarte en el check-in
     // como si la rutina se hubiera perdido.
-    restoreLastSessionForDone();
+    const sid = params.get('sid');
+    const from = params.get('from') || 'done';
+    restoreSessionAfterHealthLog(sid, from);
     state.healthLogStatus = 'error';
   }
   history.replaceState(null, '', appBaseUrl());
 }
-function restoreLastSessionForDone(){
+// Recupera la sesión que se estaba registrando (por sid si lo tenemos; si no, la más
+// reciente y solo si es de hace poco) y deja la pantalla en el lugar correcto para verla:
+// 'done' vuelve a la pantalla de fin de rutina, 'historial' se queda en el tab Historial.
+function restoreSessionAfterHealthLog(sid, from){
   const h = loadHistory();
-  if(h.length && h[0].completedAt){
+  let session = null;
+  if(sid) session = h.find(s => sessionKey(s) === sid) || null;
+  if(!session && h.length && h[0].completedAt){
     const ageMin = (Date.now() - new Date(h[0].completedAt).getTime()) / 60000;
-    if(ageMin < 120){ // solo si es una sesión reciente, evita saltar al "done" de algo viejo
-      state.lastSession = h[0];
-      state.screen = 'done';
-      state.tab = 'rutina';
-    }
+    if(ageMin < 120) session = h[0]; // solo si es reciente, evita saltar al "done" de algo viejo
+  }
+  if(!session) return;
+  state.lastSession = session;
+  if(from === 'historial'){
+    state.tab = 'historial';
+  } else {
+    state.screen = 'done';
+    state.tab = 'rutina';
   }
 }
-function updateLastHistorySessionCalories(cal){
+// Aplica `mutate` a la sesión del historial identificada por su sessionKey() y la re-guarda.
+function updateHistorySession(key, mutate){
   const h = loadHistory();
-  if(h.length && state.lastSession && h[0].completedAt === state.lastSession.completedAt){
-    h[0].calories = cal;
+  const idx = h.findIndex(s => sessionKey(s) === key);
+  if(idx >= 0){
+    mutate(h[idx]);
     try{ localStorage.setItem(LS_HISTORY, JSON.stringify(h)); }catch(e){}
   }
 }
@@ -1724,7 +1756,10 @@ function renderHistorial(){
                <button class="del-yes" onclick="deleteHistorySession('${key}')">Sí, borrar</button>
                <button class="del-no" onclick="cancelDeleteSession()">Cancelar</button>
              </span>`
-          : `<button class="del-btn" onclick="requestDeleteSession('${key}')">🗑️</button>`;
+          : `<button class="del-btn" onclick="requestDeleteSession('${key}')" title="Borrar">🗑️</button>`;
+        const healthControl = h.healthLogged
+          ? `<span style="font-size:15px;" title="Ya registrado en Apple Health">✅</span>`
+          : `<button class="del-btn" onclick="registerHistorySessionToHealth('${key}')" title="Registrar en Apple Health">🍎</button>`;
         const weights = h.exerciseWeights || {};
         const namesWithWeight = (h.exerciseIds && h.exerciseIds.length === h.exerciseNames.length)
           ? h.exerciseNames.map((name,idx)=>{
@@ -1736,12 +1771,15 @@ function renderHistorial(){
       <div class="session-item">
         <div class="session-item-head">
           <div class="date">${h.date}${h.calories!=null ? ` · 🔥 ${h.calories} kcal` : ''}${early}</div>
-          ${deleteControl}
+          <span style="display:flex;gap:6px;align-items:center;">${healthControl}${deleteControl}</span>
         </div>
         <div class="list">${namesWithWeight.join(' · ')}</div>
       </div>
     `;
       }).join('');
+  const healthLogMsg = {
+    idle: '', ok: '✅ Registrado en Apple Health', error: '⚠️ El Shortcut se canceló o falló — puedes intentar de nuevo'
+  }[state.healthLogStatus] || '';
 
   return `
     <header><div class="eyebrow">Tu progreso</div><h1>Historial</h1></header>
@@ -1752,6 +1790,7 @@ function renderHistorial(){
     </div>
     <div class="card">${sessionsHtml}</div>
     ${syncMsg ? `<p style="text-align:center;font-size:12.5px;color:var(--chalk-dim);margin-top:-4px;">${syncMsg}</p>` : ''}
+    ${healthLogMsg ? `<p style="text-align:center;font-size:12.5px;color:${state.healthLogStatus==='ok'?'var(--good)':'var(--bad)'};margin-top:-4px;">${healthLogMsg}</p>` : ''}
   `;
 }
 
