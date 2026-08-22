@@ -871,6 +871,13 @@ function handleShortcutCallback(){
       }catch(e){ console.error('No se pudo leer las calorías ajustadas por FC', e); }
     }
     state.healthLogStatus = 'ok';
+  } else if(xcb === 'log_cancel'){
+    // El Shortcut se canceló o falló antes de terminar (no llegó a "Log Workout").
+    // Tus datos ya estaban guardados en el historial ANTES de abrir Shortcuts —
+    // solo restauramos la pantalla para que se vea, en vez de dejarte en el check-in
+    // como si la rutina se hubiera perdido.
+    restoreLastSessionForDone();
+    state.healthLogStatus = 'error';
   }
   history.replaceState(null, '', appBaseUrl());
 }
@@ -1594,6 +1601,7 @@ function renderDone(){
     ${feedbackCard}
     <button class="btn-ghost btn-block" onclick="openHealthLogShortcut()">🍎 Registrar en Apple Health</button>
     ${state.healthLogStatus==='ok' ? '<p style="text-align:center;font-size:13px;margin-top:8px;color:var(--good);">✅ Enviado a Shortcuts</p>' : ''}
+    ${state.healthLogStatus==='error' ? '<p style="text-align:center;font-size:13px;margin-top:8px;color:var(--bad);">⚠️ El Shortcut se canceló o falló antes de terminar. Tu rutina sigue guardada aquí — puedes intentar registrarla de nuevo.</p>' : ''}
     <div style="height:10px;"></div>
     <button class="btn-primary btn-block" onclick="newRoutine()">Nueva rutina</button>
   `;
