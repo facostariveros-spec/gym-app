@@ -35,7 +35,10 @@ const DriveSync = {
               console.error('Auth error', resp);
               DriveSync.connected = false;
               try{ localStorage.removeItem(DRIVE_CONNECTED_KEY); }catch(e){}
+              const errorAction = DriveSync._pendingError;
               DriveSync._pendingAction = null;
+              DriveSync._pendingError = null;
+              if(errorAction) errorAction(resp);
               return;
             }
             DriveSync.accessToken = resp.access_token;
@@ -45,6 +48,7 @@ const DriveSync = {
             if(DriveSync._pendingAction){
               const action = DriveSync._pendingAction;
               DriveSync._pendingAction = null;
+              DriveSync._pendingError = null;
               action();
             }
           }
@@ -65,10 +69,13 @@ const DriveSync = {
     return DriveSync.accessToken && Date.now() < DriveSync.tokenExpiresAt - 5000;
   },
 
-  // Pide el token (muestra popup de Google la primera vez)
-  connect(callback){
+  // Pide el token (muestra popup de Google la primera vez). onError es opcional —
+  // sin él, una renovación silenciosa que falla (común en iOS Safari) dejaba a quien
+  // llamó esperando para siempre sin ningún aviso.
+  connect(callback, onError){
     if(DriveSync.isTokenValid()){ if(callback) callback(); return; }
     DriveSync._pendingAction = callback || function(){};
+    DriveSync._pendingError = onError || function(){};
     if(!DriveSync.tokenClient){
       // La librería de Google todavía no cargó — no truena, espera a que init() la retome.
       DriveSync._requestPending = true;

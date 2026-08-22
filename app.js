@@ -339,7 +339,7 @@ function deleteHistorySession(key){
         state.syncStatus = 'ok';
       }catch(e){ console.error('No se pudo borrar la sesión en Drive', e); state.syncStatus = 'error'; }
       render();
-    });
+    }, ()=>{ state.syncStatus = 'error'; render(); });
   } else {
     render();
   }
@@ -611,7 +611,7 @@ function connectDrive(){
   DriveSync.connect(()=>{
     state.syncStatus = 'ok';
     render();
-  });
+  }, ()=>{ state.syncStatus = 'error'; render(); });
 }
 function disconnectDrive(){
   DriveSync.disconnect();
@@ -627,7 +627,7 @@ function syncNow(){
       state.syncStatus = 'ok';
     }catch(e){ console.error(e); state.syncStatus = 'error'; }
     render();
-  });
+  }, ()=>{ state.syncStatus = 'error'; render(); });
 }
 function restoreFromDrive(){
   state.syncStatus = 'syncing'; render();
@@ -643,15 +643,24 @@ function restoreFromDrive(){
       state.syncStatus = 'ok';
     }catch(e){ console.error(e); state.syncStatus = 'error'; }
     render();
-  });
+  }, ()=>{ state.syncStatus = 'error'; render(); });
 }
 function autoSyncIfConnected(){
   if(typeof DriveSync === 'undefined' || !DriveSync.connected) return;
   // Pasa por connect() para renovar el token si hace falta (p.ej. tras recargar la página) —
   // llamar a upload() directo fallaba en silencio cada vez que el token no estaba fresco en memoria.
+  state.syncStatus = 'syncing';
   DriveSync.connect(()=>{
     const payload = { settings: loadSettings(), history: loadHistory(), savedAt: new Date().toISOString() };
-    DriveSync.upload(payload).catch(e=>console.error('auto-sync falló', e));
+    DriveSync.upload(payload)
+      .then(()=>{ state.syncStatus = 'ok'; render(); })
+      .catch(e=>{ console.error('auto-sync falló', e); state.syncStatus = 'error'; render(); });
+  }, ()=>{
+    // La renovación silenciosa del token falló (frecuente en iOS Safari si Google no
+    // pudo confirmar la sesión sin mostrar un popup) — no se guardó, avisamos en vez
+    // de quedarnos callados; el usuario puede reconectar desde el tab Nube.
+    state.syncStatus = 'error';
+    render();
   });
 }
 function fetchDriveRecommendation(){
@@ -672,7 +681,7 @@ function fetchDriveRecommendation(){
       state.driveRecStatus = 'unavailable';
     }
     render();
-  });
+  }, ()=>{ state.driveRecStatus = 'unavailable'; render(); });
 }
 function useRecommendation(){
   if(!state.driveRecommendation) return;
@@ -707,6 +716,10 @@ function fetchDashboardData(){
         console.error('No se pudo traer historial de Drive para el dashboard', e);
         state.dashboard = buildDashboard(loadHistory(), 'local');
       }
+      state.dashboardStatus = 'ready';
+      render();
+    }, ()=>{
+      state.dashboard = buildDashboard(loadHistory(), 'local');
       state.dashboardStatus = 'ready';
       render();
     });
@@ -1569,6 +1582,12 @@ function renderDone(){
   const earlyNote = s && s.finishedEarly
     ? `<p style="color:var(--accent);font-size:12.5px;margin-top:4px;">Terminaste antes de tiempo — se guardó lo que alcanzaste a hacer.</p>`
     : '';
+  const driveSyncNote = (typeof DriveSync !== 'undefined' && DriveSync.connected && state.syncStatus === 'error')
+    ? `<div class="card" style="border-color:var(--bad);padding:12px 14px;">
+        <p style="font-size:12.5px;color:var(--chalk-dim);margin:0 0 8px;">⚠️ No se pudo sincronizar con Google Drive automáticamente — tu rutina está guardada en este teléfono, pero todavía no en la nube.</p>
+        <button class="btn-ghost btn-block" onclick="goTab('nube')">☁️ Ir a Nube para reconectar</button>
+      </div>`
+    : '';
   const weightedIds = s ? Object.keys(s.exerciseWeights||{}) : [];
   const feedbackCard = weightedIds.length ? `
     <div class="card">
@@ -1593,6 +1612,7 @@ function renderDone(){
       <p>Estaciones completadas y guardadas en tu historial.</p>
       ${earlyNote}
     </div>
+    ${driveSyncNote}
     ${caloriesCard}
     <div class="card">
       <div class="eyebrow" style="margin-bottom:8px;">Estiramientos sugeridos</div>
