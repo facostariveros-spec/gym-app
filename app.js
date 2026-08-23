@@ -637,6 +637,14 @@ function disconnectDrive(){
   state.syncStatus = 'idle';
   render();
 }
+// Botón de rescate en el tab Nube: por si la cola interna de DriveSync se queda atascada
+// (p.ej. el modo silencioso que nunca contesta), esto la limpia sin cerrar la app.
+function forceResetDrive(){
+  driveLog('forceResetDrive(): el usuario forzó el reinicio manual desde el tab Nube');
+  DriveSync.forceReset();
+  state.syncStatus = 'idle';
+  render();
+}
 function syncNow(){
   state.syncStatus = 'syncing'; render();
   DriveSync.connect(async ()=>{
@@ -1934,6 +1942,10 @@ function renderNube(){
     error: connected ? '⚠️ Hubo un error, intenta de nuevo' : '⚠️ No se pudo reconectar automáticamente — toca para reconectar',
   }[state.syncStatus];
 
+  // Red de seguridad por si la cola interna de DriveSync se queda atascada (p.ej. el modo
+  // silencioso que nunca contesta): limpia todo el estado local sin tener que cerrar la app.
+  const forceResetControl = `<button class="btn-ghost btn-block" style="margin-top:10px;color:var(--chalk-dim);font-size:12px;" onclick="forceResetDrive()">🔧 Forzar reinicio de conexión</button>`;
+
   if(!connected){
     return `
       <header><div class="eyebrow">Respaldo</div><h1>Google Drive</h1>
@@ -1945,6 +1957,7 @@ function renderNube(){
         <button class="btn-primary btn-block" onclick="connectDrive()">Conectar con Google Drive</button>
         ${statusMsg?`<p style="text-align:center;font-size:13px;margin-top:10px;">${statusMsg}</p>`:''}
       </div>
+      ${forceResetControl}
     `;
   }
 
@@ -1960,6 +1973,7 @@ function renderNube(){
     <div style="height:10px;"></div>
     <button class="btn-ghost btn-block" style="color:var(--bad);" onclick="disconnectDrive()">Desconectar</button>
     ${statusMsg?`<p style="text-align:center;font-size:13px;margin-top:10px;">${statusMsg}</p>`:''}
+    ${forceResetControl}
   `;
 }
 

@@ -12,13 +12,20 @@ const BACKUP_FILENAME = 'rutina-gym-backup.json';
 // para poder pedir un token nuevo en silencio (sin popup) en vez de mostrar "desconectado"
 // cada vez que la página se recarga (cosa que ahora pasa seguido por los rebotes con Shortcuts).
 const DRIVE_CONNECTED_KEY = 'rutina-gym:drive-connected';
+
 // El modo silencioso (prompt:'') depende de un iframe hacia accounts.google.com con cookies
 // de terceros — el ITP de Safari en iOS lo bloquea, y en vez de devolver un error, la promesa
-// de Google simplemente NUNCA resuelve. Sin este timeout, "Sincronizando..." se queda girando
-// para siempre. 7s es más que suficiente: en el log real de prompt:'consent' (con popup visible,
-// mucho más lento) Google respondió en 16s, así que un intento silencioso que de verdad va a
-// funcionar debería resolver en un puñado de segundos.
+// de Google simplemente NUNCA resuelve. 7s es más que suficiente: es instantáneo cuando sí
+// funciona.
 const SILENT_RECONNECT_TIMEOUT_MS = 7000;
+// El modo con consentimiento (popup visible) SÍ puede tardar de verdad — un login real tomó
+// 16s en el log capturado en producción — así que este timeout es solo una red de seguridad
+// por si el popup ni siquiera llega a aparecer (frecuente si el navegador bloquea popups
+// dentro de una PWA instalada), no un límite normal de uso.
+const CONSENT_TIMEOUT_MS = 60000;
+// Si el <script> de accounts.google.com nunca termina de cargar (bloqueado o sin red), no tiene
+// caso seguir esperando indefinidamente a que exista window.google.accounts.oauth2.
+const LIBRARY_LOAD_TIMEOUT_MS = 8000;
 
 // Logging de diagnóstico para el problema de reconexión silenciosa tras Shortcuts.
 // Se deja encendido a propósito (no solo en debug) porque el bug es intermitente
@@ -36,52 +43,66 @@ const DriveSync = {
   fileId: null,
   connected: false,
   lastSync: null,
-  // Cola de quienes están esperando el resultado de la solicitud de token EN CURSO.
-  // Antes esto era una sola variable (_pendingAction/_pendingError) y si dos llamadas a
-  // connect() llegaban casi al mismo tiempo (p.ej. el auto-sync al volver de Shortcuts y el
-  // dashboard pidiendo datos de Drive a la vez), la segunda pisaba a la primera y esa
-  // quedaba esperando para siempre. Con la cola, todas las llamadas que lleguen mientras
-  // hay una solicitud en curso se resuelven juntas con el mismo resultado.
+  // Cola de quienes están esperando el resultado de la solicitud de token EN CURSO (o de que
+  // cargue la librería de Google). Cada entrada trae SU PROPIO timeout individual — antes solo
+  // había un timeout "compartido" atado a la solicitud activa, y si ese bookkeeping fallaba (o
+  // llegaban solicitudes encoladas detrás de una que nunca se resolvía), se quedaban esperando
+  // para siempre sin ninguna forma de salir, ni siquiera desconectando/reconectando a mano
+  // (esas acciones solo se apilaban en la misma cola atascada). Ahora CADA entrada se resuelve
+  // sola como fallo si nadie le contesta a tiempo, sin depender de que el resto del estado esté
+  // sano.
   _pendingQueue: [],
   _requestInFlight: false,
   _requestPending: false, // hay una solicitud esperando a que cargue la librería de Google
   _requestSeq: 0,         // id incremental de cada solicitud real a Google (para ignorar respuestas tardías)
   _activeRequestId: null,
+  _activePrompt: null,
   _timedOutIds: null,     // Set de ids a los que ya dejamos de esperar — si Google responde igual, se ignora
   _activeTimer: null,
+  _libraryLoadTimedOut: false,
 
-  // Envía la solicitud real a Google. Si es modo silencioso (prompt:''), arma un timeout: si
-  // Google no contesta a tiempo, lo tratamos como un fallo real (mismo camino que un error de
-  // Google) en vez de dejar "syncing" colgado. Si Google de todas formas responde tarde, la
-  // respuesta se ignora (ver el callback de initTokenClient) para no pisar un estado que la UI
-  // ya mostró.
+  // Resuelve TODA la cola actual de una sola vez (éxito o error), limpiando el timeout
+  // individual de cada entrada para que no se dispare después y la vuelva a notificar.
+  _drainQueue(kind, payload){
+    const queue = DriveSync._pendingQueue;
+    DriveSync._pendingQueue = [];
+    queue.forEach(entry=>{
+      if(entry.done) return;
+      entry.done = true;
+      if(entry.timer) clearTimeout(entry.timer);
+      if(kind === 'ok') entry.callback();
+      else entry.onError(payload);
+    });
+  },
+
+  // Envía la solicitud real a Google y arma el timeout que la fuerza a fallar si nunca
+  // contesta — así se libera _requestInFlight y la cola puede seguir adelante en vez de quedarse
+  // esperando eternamente a una solicitud perdida.
   _sendRequest(prompt){
     if(!DriveSync._timedOutIds) DriveSync._timedOutIds = new Set();
     const reqId = ++DriveSync._requestSeq;
     DriveSync._activeRequestId = reqId;
+    DriveSync._activePrompt = prompt;
     DriveSync._requestInFlight = true;
     DriveSync._lastRequestAt = Date.now();
-    driveLog(`pidiendo token con prompt: '${prompt}' (id=${reqId})`);
+    const timeoutMs = prompt === '' ? SILENT_RECONNECT_TIMEOUT_MS : CONSENT_TIMEOUT_MS;
+    driveLog(`pidiendo token con prompt: '${prompt}' (id=${reqId}, timeout=${timeoutMs}ms)`);
     if(DriveSync._activeTimer){ clearTimeout(DriveSync._activeTimer); DriveSync._activeTimer = null; }
-    if(prompt === ''){
-      DriveSync._activeTimer = setTimeout(()=>{
-        driveLog(`TIMEOUT: Google no respondió en ${SILENT_RECONNECT_TIMEOUT_MS}ms al intento silencioso (id=${reqId}) — probable ITP de Safari bloqueando el iframe de accounts.google.com. Se trata como fallo de reconexión.`);
-        DriveSync._activeTimer = null;
-        DriveSync._timedOutIds.add(reqId);
-        DriveSync._requestInFlight = false;
-        DriveSync.connected = false;
-        try{
-          localStorage.removeItem(DRIVE_CONNECTED_KEY);
-          driveLog('flag de localStorage BORRADO por timeout de reconexión silenciosa');
-        }catch(e){ driveLog('no se pudo borrar el flag de localStorage', e); }
-        const queue = DriveSync._pendingQueue;
-        DriveSync._pendingQueue = [];
-        queue.forEach(p => p.onError({
-          error: 'silent_reconnect_timeout',
-          error_description: `Google no respondió en ${SILENT_RECONNECT_TIMEOUT_MS}ms al intento silencioso (id=${reqId})`,
-        }));
-      }, SILENT_RECONNECT_TIMEOUT_MS);
-    }
+    DriveSync._activeTimer = setTimeout(()=>{
+      driveLog(`TIMEOUT: Google no respondió en ${timeoutMs}ms para la solicitud (id=${reqId}, prompt='${prompt}') — probable ITP de Safari bloqueando el iframe/popup. Se trata como fallo y se libera la cola.`);
+      DriveSync._activeTimer = null;
+      DriveSync._timedOutIds.add(reqId);
+      DriveSync._requestInFlight = false;
+      DriveSync.connected = false;
+      try{
+        localStorage.removeItem(DRIVE_CONNECTED_KEY);
+        driveLog('flag de localStorage BORRADO por timeout de reconexión');
+      }catch(e){ driveLog('no se pudo borrar el flag de localStorage', e); }
+      DriveSync._drainQueue('error', {
+        error: 'reconnect_timeout',
+        error_description: `Google no respondió en ${timeoutMs}ms (prompt='${prompt}', id=${reqId})`,
+      });
+    }, timeoutMs);
     DriveSync.tokenClient.requestAccessToken({ prompt });
   },
 
@@ -118,8 +139,6 @@ const DriveSync = {
             if(DriveSync._activeTimer){ clearTimeout(DriveSync._activeTimer); DriveSync._activeTimer = null; }
             const elapsed = Date.now() - (DriveSync._lastRequestAt || t0);
             DriveSync._requestInFlight = false;
-            const queue = DriveSync._pendingQueue;
-            DriveSync._pendingQueue = [];
             if(resp.error){
               // GIS puede mandar error, error_description y a veces error_uri (formato OAuth2).
               // El código exacto (user_logged_out, consent_required, access_denied, etc.) es
@@ -129,9 +148,9 @@ const DriveSync = {
               DriveSync.connected = false;
               try{
                 localStorage.removeItem(DRIVE_CONNECTED_KEY);
-                driveLog('flag de localStorage BORRADO porque la reconexión silenciosa falló de verdad');
+                driveLog('flag de localStorage BORRADO porque la reconexión falló de verdad');
               }catch(e){ driveLog('no se pudo borrar el flag de localStorage', e); }
-              queue.forEach(p => p.onError(resp));
+              DriveSync._drainQueue('error', resp);
               return;
             }
             driveLog(`respuesta de Google: OK tras ${elapsed}ms — token expira en ${resp.expires_in}s`);
@@ -139,7 +158,7 @@ const DriveSync = {
             DriveSync.tokenExpiresAt = Date.now() + (resp.expires_in*1000);
             DriveSync.connected = true;
             try{ localStorage.setItem(DRIVE_CONNECTED_KEY, '1'); }catch(e){ driveLog('no se pudo guardar el flag de localStorage', e); }
-            queue.forEach(p => p.callback());
+            DriveSync._drainQueue('ok');
           }
         });
         // Si algo llamó a connect() antes de que esta librería terminara de cargar
@@ -151,6 +170,24 @@ const DriveSync = {
           DriveSync._sendRequest(DriveSync.connected ? '' : 'consent');
         }
         if(onReady) onReady();
+        return;
+      }
+      // La librería nunca cargó (bloqueada, sin red, etc.) — no tiene caso dejar a quien
+      // esperaba (vía _requestPending) colgado para siempre sin ningún aviso.
+      if(!DriveSync._libraryLoadTimedOut && Date.now() - t0 > LIBRARY_LOAD_TIMEOUT_MS){
+        DriveSync._libraryLoadTimedOut = true;
+        driveLog(`init: TIMEOUT — la librería de Google no cargó en ${LIBRARY_LOAD_TIMEOUT_MS}ms (${ticks} intentos). Se descarta cualquier solicitud en espera.`);
+        if(DriveSync._requestPending){
+          DriveSync._requestPending = false;
+          DriveSync.connected = false;
+          try{ localStorage.removeItem(DRIVE_CONNECTED_KEY); }catch(e){}
+          DriveSync._drainQueue('error', {
+            error: 'google_library_load_timeout',
+            error_description: `La librería de Google no cargó en ${LIBRARY_LOAD_TIMEOUT_MS}ms`,
+          });
+        }
+        // El interval se deja corriendo por si la librería carga tarde — si eso pasa, el
+        // bloque de arriba la toma con normalidad en el siguiente tick.
       }
     }, 200);
   },
@@ -168,13 +205,36 @@ const DriveSync = {
       if(callback) callback();
       return;
     }
-    DriveSync._pendingQueue.push({ callback: callback || function(){}, onError: onError || function(){} });
+
+    // A qué se va a sumar esta llamada, para saber cuánto esperar como máximo ANTES de darla
+    // por perdida individualmente — esto es lo que garantiza que ninguna llamada a connect(),
+    // ni siquiera una que se encola detrás de otra ya atascada, espere para siempre.
+    let waitKind;
+    if(DriveSync._requestInFlight) waitKind = DriveSync._activePrompt === '' ? 'silent' : 'consent';
+    else if(!DriveSync.tokenClient) waitKind = 'library';
+    else waitKind = DriveSync.connected ? 'silent' : 'consent';
+    const entryTimeoutMs = waitKind === 'consent' ? CONSENT_TIMEOUT_MS
+      : waitKind === 'library' ? LIBRARY_LOAD_TIMEOUT_MS
+      : SILENT_RECONNECT_TIMEOUT_MS;
+
+    const entry = { callback: callback || function(){}, onError: onError || function(){}, done: false, timer: null };
+    entry.timer = setTimeout(()=>{
+      if(entry.done) return;
+      entry.done = true;
+      const idx = DriveSync._pendingQueue.indexOf(entry);
+      if(idx !== -1) DriveSync._pendingQueue.splice(idx, 1);
+      driveLog(`connect(): timeout individual de esta solicitud tras ${entryTimeoutMs}ms (tipo="${waitKind}") — se descarta y se avisa como fallo, sin depender de la solicitud compartida`);
+      entry.onError({ error: 'connect_timeout', error_description: `Sin respuesta en ${entryTimeoutMs}ms (tipo=${waitKind})` });
+    }, entryTimeoutMs);
+    DriveSync._pendingQueue.push(entry);
+
     if(DriveSync._requestInFlight){
       driveLog(`connect(): ya hay una solicitud en curso, se encola (total esperando: ${DriveSync._pendingQueue.length})`);
-      return; // ya hay una solicitud en curso, se resuelve con la cola de arriba
+      return; // ya hay una solicitud en curso, se resuelve con la cola de arriba (o con su propio timeout)
     }
     if(!DriveSync.tokenClient){
-      // La librería de Google todavía no cargó — no truena, espera a que init() la retome.
+      // La librería de Google todavía no cargó — no truena, espera a que init() la retome
+      // (o a que el timeout de carga de la librería la descarte).
       driveLog('connect(): la librería de Google todavía no está lista, se marca como pendiente');
       DriveSync._requestPending = true;
       return;
@@ -189,6 +249,28 @@ const DriveSync = {
       google.accounts.oauth2.revoke(DriveSync.accessToken, ()=>{});
     }
     DriveSync.accessToken = null;
+    DriveSync.connected = false;
+    DriveSync.fileId = null;
+    try{ localStorage.removeItem(DRIVE_CONNECTED_KEY); }catch(e){}
+  },
+
+  // Botón de rescate para el tab Nube: limpia TODO el estado interno (cola atascada incluida)
+  // sin necesidad de cerrar y reabrir la app. A diferencia de disconnect(), esto no depende de
+  // que Google responda a nada — es puramente local.
+  forceReset(){
+    driveLog('forceReset(): reinicio manual forzado del estado de DriveSync');
+    if(DriveSync._activeTimer){ clearTimeout(DriveSync._activeTimer); DriveSync._activeTimer = null; }
+    DriveSync._drainQueue('error', {
+      error: 'force_reset',
+      error_description: 'Reinicio manual del estado de DriveSync desde el tab Nube',
+    });
+    DriveSync._requestInFlight = false;
+    DriveSync._requestPending = false;
+    DriveSync._activeRequestId = null;
+    DriveSync._activePrompt = null;
+    if(DriveSync._timedOutIds) DriveSync._timedOutIds.clear();
+    DriveSync.accessToken = null;
+    DriveSync.tokenExpiresAt = 0;
     DriveSync.connected = false;
     DriveSync.fileId = null;
     try{ localStorage.removeItem(DRIVE_CONNECTED_KEY); }catch(e){}
