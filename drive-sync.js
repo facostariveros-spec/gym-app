@@ -20,6 +20,15 @@ const DriveSync = {
   fileId: null,
   connected: false,
   lastSync: null,
+  // Cola de quienes están esperando el resultado de la solicitud de token EN CURSO.
+  // Antes esto era una sola variable (_pendingAction/_pendingError) y si dos llamadas a
+  // connect() llegaban casi al mismo tiempo (p.ej. el auto-sync al volver de Shortcuts y el
+  // dashboard pidiendo datos de Drive a la vez), la segunda pisaba a la primera y esa
+  // quedaba esperando para siempre. Con la cola, todas las llamadas que lleguen mientras
+  // hay una solicitud en curso se resuelven juntas con el mismo resultado.
+  _pendingQueue: [],
+  _requestInFlight: false,
+  _requestPending: false, // hay una solicitud esperando a que cargue la librería de Google
 
   init(onReady){
     try{ DriveSync.connected = localStorage.getItem(DRIVE_CONNECTED_KEY) === '1'; }catch(e){}
@@ -31,26 +40,21 @@ const DriveSync = {
           client_id: GOOGLE_CLIENT_ID,
           scope: DRIVE_SCOPE,
           callback: (resp)=>{
+            DriveSync._requestInFlight = false;
+            const queue = DriveSync._pendingQueue;
+            DriveSync._pendingQueue = [];
             if(resp.error){
               console.error('Auth error', resp);
               DriveSync.connected = false;
               try{ localStorage.removeItem(DRIVE_CONNECTED_KEY); }catch(e){}
-              const errorAction = DriveSync._pendingError;
-              DriveSync._pendingAction = null;
-              DriveSync._pendingError = null;
-              if(errorAction) errorAction(resp);
+              queue.forEach(p => p.onError(resp));
               return;
             }
             DriveSync.accessToken = resp.access_token;
             DriveSync.tokenExpiresAt = Date.now() + (resp.expires_in*1000);
             DriveSync.connected = true;
             try{ localStorage.setItem(DRIVE_CONNECTED_KEY, '1'); }catch(e){}
-            if(DriveSync._pendingAction){
-              const action = DriveSync._pendingAction;
-              DriveSync._pendingAction = null;
-              DriveSync._pendingError = null;
-              action();
-            }
+            queue.forEach(p => p.callback());
           }
         });
         // Si algo llamó a connect() antes de que esta librería terminara de cargar
@@ -58,6 +62,7 @@ const DriveSync = {
         // ya no quedó tronando — retoma la solicitud ahora que el cliente ya existe.
         if(DriveSync._requestPending){
           DriveSync._requestPending = false;
+          DriveSync._requestInFlight = true;
           DriveSync.tokenClient.requestAccessToken({ prompt: DriveSync.connected ? '' : 'consent' });
         }
         if(onReady) onReady();
@@ -74,13 +79,14 @@ const DriveSync = {
   // llamó esperando para siempre sin ningún aviso.
   connect(callback, onError){
     if(DriveSync.isTokenValid()){ if(callback) callback(); return; }
-    DriveSync._pendingAction = callback || function(){};
-    DriveSync._pendingError = onError || function(){};
+    DriveSync._pendingQueue.push({ callback: callback || function(){}, onError: onError || function(){} });
+    if(DriveSync._requestInFlight) return; // ya hay una solicitud en curso, se resuelve con la cola de arriba
     if(!DriveSync.tokenClient){
       // La librería de Google todavía no cargó — no truena, espera a que init() la retome.
       DriveSync._requestPending = true;
       return;
     }
+    DriveSync._requestInFlight = true;
     DriveSync.tokenClient.requestAccessToken({ prompt: DriveSync.connected ? '' : 'consent' });
   },
 

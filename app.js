@@ -604,7 +604,14 @@ let state = {
 
 /* ---------- Google Drive: inicializar y auto-sync ---------- */
 if(typeof DriveSync !== 'undefined'){
-  DriveSync.init(()=>{ /* listo para usarse */ });
+  DriveSync.init(()=>{
+    // Reconexión silenciosa proactiva: si ya habías conectado antes (el flag persistido
+    // en localStorage), renueva el token apenas la librería de Google esté lista, en vez
+    // de esperar a que alguna otra acción (sync, dashboard, etc.) la dispare por su cuenta.
+    // connectDrive() ya pide el token con prompt:'' cuando DriveSync.connected es true, así
+    // que esto nunca muestra el popup de consentimiento — solo lo reintenta si de verdad falló.
+    if(DriveSync.connected) connectDrive();
+  });
 }
 function connectDrive(){
   state.syncStatus = 'syncing'; render();
