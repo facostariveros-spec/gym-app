@@ -604,21 +604,33 @@ let state = {
 
 /* ---------- Google Drive: inicializar y auto-sync ---------- */
 if(typeof DriveSync !== 'undefined'){
+  driveLog('app.js: llamando a DriveSync.init() — location.search =', location.search);
   DriveSync.init(()=>{
     // Reconexión silenciosa proactiva: si ya habías conectado antes (el flag persistido
     // en localStorage), renueva el token apenas la librería de Google esté lista, en vez
     // de esperar a que alguna otra acción (sync, dashboard, etc.) la dispare por su cuenta.
     // connectDrive() ya pide el token con prompt:'' cuando DriveSync.connected es true, así
     // que esto nunca muestra el popup de consentimiento — solo lo reintenta si de verdad falló.
-    if(DriveSync.connected) connectDrive();
+    driveLog('app.js: onReady de DriveSync.init — DriveSync.connected =', DriveSync.connected);
+    if(DriveSync.connected){
+      driveLog('app.js: flag activo, intentando reconexión silenciosa proactiva vía connectDrive()');
+      connectDrive();
+    } else {
+      driveLog('app.js: no hay flag de conexión previa, no se intenta reconectar');
+    }
   });
 }
 function connectDrive(){
   state.syncStatus = 'syncing'; render();
   DriveSync.connect(()=>{
+    driveLog('connectDrive(): reconexión OK, syncStatus = ok');
     state.syncStatus = 'ok';
     render();
-  }, ()=>{ state.syncStatus = 'error'; render(); });
+  }, (resp)=>{
+    driveLog('connectDrive(): reconexión FALLÓ, syncStatus = error. Detalle:', resp);
+    state.syncStatus = 'error';
+    render();
+  });
 }
 function disconnectDrive(){
   DriveSync.disconnect();
@@ -653,19 +665,24 @@ function restoreFromDrive(){
   }, ()=>{ state.syncStatus = 'error'; render(); });
 }
 function autoSyncIfConnected(){
-  if(typeof DriveSync === 'undefined' || !DriveSync.connected) return;
+  if(typeof DriveSync === 'undefined' || !DriveSync.connected){
+    driveLog('autoSyncIfConnected(): no hay flag de conexión, no se intenta sincronizar');
+    return;
+  }
+  driveLog('autoSyncIfConnected(): flag activo, pidiendo token para subir el historial actualizado');
   // Pasa por connect() para renovar el token si hace falta (p.ej. tras recargar la página) —
   // llamar a upload() directo fallaba en silencio cada vez que el token no estaba fresco en memoria.
   state.syncStatus = 'syncing';
   DriveSync.connect(()=>{
     const payload = { settings: loadSettings(), history: loadHistory(), savedAt: new Date().toISOString() };
     DriveSync.upload(payload)
-      .then(()=>{ state.syncStatus = 'ok'; render(); })
-      .catch(e=>{ console.error('auto-sync falló', e); state.syncStatus = 'error'; render(); });
-  }, ()=>{
+      .then(()=>{ driveLog('autoSyncIfConnected(): upload OK'); state.syncStatus = 'ok'; render(); })
+      .catch(e=>{ driveLog('autoSyncIfConnected(): upload FALLÓ', e); console.error('auto-sync falló', e); state.syncStatus = 'error'; render(); });
+  }, (resp)=>{
     // La renovación silenciosa del token falló (frecuente en iOS Safari si Google no
     // pudo confirmar la sesión sin mostrar un popup) — no se guardó, avisamos en vez
     // de quedarnos callados; el usuario puede reconectar desde el tab Nube.
+    driveLog('autoSyncIfConnected(): la reconexión falló, no se subió nada. Detalle:', resp);
     state.syncStatus = 'error';
     render();
   });
@@ -869,6 +886,13 @@ function handleShortcutCallback(){
   const params = new URLSearchParams(location.search);
   const xcb = params.get('xcb');
   if(!xcb) return;
+  // Diagnóstico: ¿el flag de "ya conecté Drive antes" SIGUE en localStorage justo al volver
+  // del Shortcut, antes de que se intente cualquier reconexión? Si aquí ya no está, algo lo
+  // está borrando antes de tiempo (no es un fallo de la reconexión silenciosa en sí).
+  try{
+    const flagAtCallback = localStorage.getItem(DRIVE_CONNECTED_KEY);
+    driveLog(`handleShortcutCallback(xcb="${xcb}"): flag en localStorage al llegar = ${JSON.stringify(flagAtCallback)}`);
+  }catch(e){ driveLog('handleShortcutCallback: no se pudo leer localStorage', e); }
   if(xcb === 'health_success'){
     const raw = params.get('result');
     if(raw){

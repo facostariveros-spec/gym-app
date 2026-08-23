@@ -13,6 +13,15 @@ const BACKUP_FILENAME = 'rutina-gym-backup.json';
 // cada vez que la página se recarga (cosa que ahora pasa seguido por los rebotes con Shortcuts).
 const DRIVE_CONNECTED_KEY = 'rutina-gym:drive-connected';
 
+// Logging de diagnóstico para el problema de reconexión silenciosa tras Shortcuts.
+// Se deja encendido a propósito (no solo en debug) porque el bug es intermitente
+// y depende del dispositivo/contexto real — hay que verlo en Safari Web Inspector
+// desde un iPhone conectado a una Mac, no se puede reproducir de forma confiable local.
+function driveLog(...args){
+  const t = new Date().toISOString().slice(11,23);
+  console.log(`[DriveSync ${t}]`, ...args);
+}
+
 const DriveSync = {
   tokenClient: null,
   accessToken: null,
@@ -31,29 +40,50 @@ const DriveSync = {
   _requestPending: false, // hay una solicitud esperando a que cargue la librería de Google
 
   init(onReady){
-    try{ DriveSync.connected = localStorage.getItem(DRIVE_CONNECTED_KEY) === '1'; }catch(e){}
+    const t0 = Date.now();
+    let flagRaw = null, readError = null;
+    try{ flagRaw = localStorage.getItem(DRIVE_CONNECTED_KEY); }catch(e){ readError = e; }
+    DriveSync.connected = flagRaw === '1';
+    if(readError){
+      driveLog('init: no se pudo leer localStorage (¿modo privado?)', readError);
+    } else {
+      driveLog(`init: flag "${DRIVE_CONNECTED_KEY}" en localStorage = ${JSON.stringify(flagRaw)} -> connected = ${DriveSync.connected}`);
+    }
+    driveLog('init: esperando a que window.google.accounts.oauth2 esté disponible...');
+    let ticks = 0;
     // Espera a que la librería de Google esté cargada
     const check = setInterval(()=>{
+      ticks++;
       if(window.google && google.accounts && google.accounts.oauth2){
         clearInterval(check);
+        driveLog(`init: librería de Google lista tras ${Date.now()-t0}ms (${ticks} intentos de 200ms)`);
         DriveSync.tokenClient = google.accounts.oauth2.initTokenClient({
           client_id: GOOGLE_CLIENT_ID,
           scope: DRIVE_SCOPE,
           callback: (resp)=>{
+            const elapsed = Date.now() - (DriveSync._lastRequestAt || t0);
             DriveSync._requestInFlight = false;
             const queue = DriveSync._pendingQueue;
             DriveSync._pendingQueue = [];
             if(resp.error){
+              // GIS puede mandar error, error_description y a veces error_uri (formato OAuth2).
+              // El código exacto (user_logged_out, consent_required, access_denied, etc.) es
+              // lo que nos dice si es partición de cookies del WebView o algo distinto.
+              driveLog(`respuesta de Google: ERROR tras ${elapsed}ms — código="${resp.error}" descripción="${resp.error_description||'(sin descripción)'}" objeto completo:`, resp);
               console.error('Auth error', resp);
               DriveSync.connected = false;
-              try{ localStorage.removeItem(DRIVE_CONNECTED_KEY); }catch(e){}
+              try{
+                localStorage.removeItem(DRIVE_CONNECTED_KEY);
+                driveLog('flag de localStorage BORRADO porque la reconexión silenciosa falló de verdad');
+              }catch(e){ driveLog('no se pudo borrar el flag de localStorage', e); }
               queue.forEach(p => p.onError(resp));
               return;
             }
+            driveLog(`respuesta de Google: OK tras ${elapsed}ms — token expira en ${resp.expires_in}s`);
             DriveSync.accessToken = resp.access_token;
             DriveSync.tokenExpiresAt = Date.now() + (resp.expires_in*1000);
             DriveSync.connected = true;
-            try{ localStorage.setItem(DRIVE_CONNECTED_KEY, '1'); }catch(e){}
+            try{ localStorage.setItem(DRIVE_CONNECTED_KEY, '1'); }catch(e){ driveLog('no se pudo guardar el flag de localStorage', e); }
             queue.forEach(p => p.callback());
           }
         });
@@ -63,7 +93,10 @@ const DriveSync = {
         if(DriveSync._requestPending){
           DriveSync._requestPending = false;
           DriveSync._requestInFlight = true;
-          DriveSync.tokenClient.requestAccessToken({ prompt: DriveSync.connected ? '' : 'consent' });
+          const prompt = DriveSync.connected ? '' : 'consent';
+          DriveSync._lastRequestAt = Date.now();
+          driveLog(`init: había una solicitud pendiente de antes — pidiendo token ahora con prompt: '${prompt}'`);
+          DriveSync.tokenClient.requestAccessToken({ prompt });
         }
         if(onReady) onReady();
       }
@@ -78,19 +111,31 @@ const DriveSync = {
   // sin él, una renovación silenciosa que falla (común en iOS Safari) dejaba a quien
   // llamó esperando para siempre sin ningún aviso.
   connect(callback, onError){
-    if(DriveSync.isTokenValid()){ if(callback) callback(); return; }
+    if(DriveSync.isTokenValid()){
+      driveLog('connect(): token en memoria todavía válido, no se pide uno nuevo');
+      if(callback) callback();
+      return;
+    }
     DriveSync._pendingQueue.push({ callback: callback || function(){}, onError: onError || function(){} });
-    if(DriveSync._requestInFlight) return; // ya hay una solicitud en curso, se resuelve con la cola de arriba
+    if(DriveSync._requestInFlight){
+      driveLog(`connect(): ya hay una solicitud en curso, se encola (total esperando: ${DriveSync._pendingQueue.length})`);
+      return; // ya hay una solicitud en curso, se resuelve con la cola de arriba
+    }
     if(!DriveSync.tokenClient){
       // La librería de Google todavía no cargó — no truena, espera a que init() la retome.
+      driveLog('connect(): la librería de Google todavía no está lista, se marca como pendiente');
       DriveSync._requestPending = true;
       return;
     }
     DriveSync._requestInFlight = true;
-    DriveSync.tokenClient.requestAccessToken({ prompt: DriveSync.connected ? '' : 'consent' });
+    const prompt = DriveSync.connected ? '' : 'consent';
+    DriveSync._lastRequestAt = Date.now();
+    driveLog(`connect(): pidiendo token con prompt: '${prompt}' (DriveSync.connected=${DriveSync.connected})`);
+    DriveSync.tokenClient.requestAccessToken({ prompt });
   },
 
   disconnect(){
+    driveLog('disconnect(): desconectando manualmente y borrando el flag de localStorage');
     if(DriveSync.accessToken){
       google.accounts.oauth2.revoke(DriveSync.accessToken, ()=>{});
     }
