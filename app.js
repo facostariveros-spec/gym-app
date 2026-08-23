@@ -1737,10 +1737,13 @@ function renderDone(){
   const earlyNote = s && s.finishedEarly
     ? `<p style="color:var(--accent);font-size:12.5px;margin-top:4px;">Terminaste antes de tiempo — se guardó lo que alcanzaste a hacer.</p>`
     : '';
-  const driveSyncNote = (typeof DriveSync !== 'undefined' && DriveSync.connected && state.syncStatus === 'error')
+  // Nota: no se condiciona a DriveSync.connected porque cualquier fallo de reconexión (real o
+  // por timeout del modo silencioso) ya lo pone en false — si dependiera de "connected", esta
+  // nota nunca se mostraría justo quando más hace falta avisar.
+  const driveSyncNote = (typeof DriveSync !== 'undefined' && state.syncStatus === 'error')
     ? `<div class="card" style="border-color:var(--bad);padding:12px 14px;">
-        <p style="font-size:12.5px;color:var(--chalk-dim);margin:0 0 8px;">⚠️ No se pudo sincronizar con Google Drive automáticamente — tu rutina está guardada en este teléfono, pero todavía no en la nube.</p>
-        <button class="btn-ghost btn-block" onclick="goTab('nube')">☁️ Ir a Nube para reconectar</button>
+        <p style="font-size:12.5px;color:var(--chalk-dim);margin:0 0 8px;">⚠️ No se pudo reconectar con Google Drive automáticamente — tu rutina está guardada en este teléfono, pero todavía no en la nube.</p>
+        <button class="btn-ghost btn-block" onclick="goTab('nube')">☁️ Toca para reconectar</button>
       </div>`
     : '';
   const weightedIds = s ? Object.keys(s.exerciseWeights||{}) : [];
@@ -1925,7 +1928,10 @@ function renderNube(){
 
   const statusMsg = {
     idle: '', syncing: '⏳ Sincronizando...',
-    ok: '✅ Listo', error: '⚠️ Hubo un error, intenta de nuevo'
+    ok: '✅ Listo',
+    // Si "connected" ya es false, el fallo fue de la reconexión misma (silenciosa o no) —
+    // no de una subida/descarga con un token que sí seguía siendo válido.
+    error: connected ? '⚠️ Hubo un error, intenta de nuevo' : '⚠️ No se pudo reconectar automáticamente — toca para reconectar',
   }[state.syncStatus];
 
   if(!connected){

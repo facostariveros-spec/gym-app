@@ -12,6 +12,13 @@ const BACKUP_FILENAME = 'rutina-gym-backup.json';
 // para poder pedir un token nuevo en silencio (sin popup) en vez de mostrar "desconectado"
 // cada vez que la página se recarga (cosa que ahora pasa seguido por los rebotes con Shortcuts).
 const DRIVE_CONNECTED_KEY = 'rutina-gym:drive-connected';
+// El modo silencioso (prompt:'') depende de un iframe hacia accounts.google.com con cookies
+// de terceros — el ITP de Safari en iOS lo bloquea, y en vez de devolver un error, la promesa
+// de Google simplemente NUNCA resuelve. Sin este timeout, "Sincronizando..." se queda girando
+// para siempre. 7s es más que suficiente: en el log real de prompt:'consent' (con popup visible,
+// mucho más lento) Google respondió en 16s, así que un intento silencioso que de verdad va a
+// funcionar debería resolver en un puñado de segundos.
+const SILENT_RECONNECT_TIMEOUT_MS = 7000;
 
 // Logging de diagnóstico para el problema de reconexión silenciosa tras Shortcuts.
 // Se deja encendido a propósito (no solo en debug) porque el bug es intermitente
@@ -38,6 +45,45 @@ const DriveSync = {
   _pendingQueue: [],
   _requestInFlight: false,
   _requestPending: false, // hay una solicitud esperando a que cargue la librería de Google
+  _requestSeq: 0,         // id incremental de cada solicitud real a Google (para ignorar respuestas tardías)
+  _activeRequestId: null,
+  _timedOutIds: null,     // Set de ids a los que ya dejamos de esperar — si Google responde igual, se ignora
+  _activeTimer: null,
+
+  // Envía la solicitud real a Google. Si es modo silencioso (prompt:''), arma un timeout: si
+  // Google no contesta a tiempo, lo tratamos como un fallo real (mismo camino que un error de
+  // Google) en vez de dejar "syncing" colgado. Si Google de todas formas responde tarde, la
+  // respuesta se ignora (ver el callback de initTokenClient) para no pisar un estado que la UI
+  // ya mostró.
+  _sendRequest(prompt){
+    if(!DriveSync._timedOutIds) DriveSync._timedOutIds = new Set();
+    const reqId = ++DriveSync._requestSeq;
+    DriveSync._activeRequestId = reqId;
+    DriveSync._requestInFlight = true;
+    DriveSync._lastRequestAt = Date.now();
+    driveLog(`pidiendo token con prompt: '${prompt}' (id=${reqId})`);
+    if(DriveSync._activeTimer){ clearTimeout(DriveSync._activeTimer); DriveSync._activeTimer = null; }
+    if(prompt === ''){
+      DriveSync._activeTimer = setTimeout(()=>{
+        driveLog(`TIMEOUT: Google no respondió en ${SILENT_RECONNECT_TIMEOUT_MS}ms al intento silencioso (id=${reqId}) — probable ITP de Safari bloqueando el iframe de accounts.google.com. Se trata como fallo de reconexión.`);
+        DriveSync._activeTimer = null;
+        DriveSync._timedOutIds.add(reqId);
+        DriveSync._requestInFlight = false;
+        DriveSync.connected = false;
+        try{
+          localStorage.removeItem(DRIVE_CONNECTED_KEY);
+          driveLog('flag de localStorage BORRADO por timeout de reconexión silenciosa');
+        }catch(e){ driveLog('no se pudo borrar el flag de localStorage', e); }
+        const queue = DriveSync._pendingQueue;
+        DriveSync._pendingQueue = [];
+        queue.forEach(p => p.onError({
+          error: 'silent_reconnect_timeout',
+          error_description: `Google no respondió en ${SILENT_RECONNECT_TIMEOUT_MS}ms al intento silencioso (id=${reqId})`,
+        }));
+      }, SILENT_RECONNECT_TIMEOUT_MS);
+    }
+    DriveSync.tokenClient.requestAccessToken({ prompt });
+  },
 
   init(onReady){
     const t0 = Date.now();
@@ -61,6 +107,15 @@ const DriveSync = {
           client_id: GOOGLE_CLIENT_ID,
           scope: DRIVE_SCOPE,
           callback: (resp)=>{
+            const reqId = DriveSync._activeRequestId;
+            if(DriveSync._timedOutIds && DriveSync._timedOutIds.has(reqId)){
+              // Llegó tarde: ya tratamos esta solicitud como fallida y la UI ya se actualizó.
+              // Se ignora por completo para no contradecir lo que el usuario ya está viendo.
+              driveLog(`respuesta de Google IGNORADA (llegó después del timeout, id=${reqId}):`, resp.error ? `error=${resp.error}` : 'éxito tardío');
+              DriveSync._timedOutIds.delete(reqId);
+              return;
+            }
+            if(DriveSync._activeTimer){ clearTimeout(DriveSync._activeTimer); DriveSync._activeTimer = null; }
             const elapsed = Date.now() - (DriveSync._lastRequestAt || t0);
             DriveSync._requestInFlight = false;
             const queue = DriveSync._pendingQueue;
@@ -92,11 +147,8 @@ const DriveSync = {
         // ya no quedó tronando — retoma la solicitud ahora que el cliente ya existe.
         if(DriveSync._requestPending){
           DriveSync._requestPending = false;
-          DriveSync._requestInFlight = true;
-          const prompt = DriveSync.connected ? '' : 'consent';
-          DriveSync._lastRequestAt = Date.now();
-          driveLog(`init: había una solicitud pendiente de antes — pidiendo token ahora con prompt: '${prompt}'`);
-          DriveSync.tokenClient.requestAccessToken({ prompt });
+          driveLog('init: había una solicitud pendiente de antes, la retoma ahora');
+          DriveSync._sendRequest(DriveSync.connected ? '' : 'consent');
         }
         if(onReady) onReady();
       }
@@ -127,11 +179,8 @@ const DriveSync = {
       DriveSync._requestPending = true;
       return;
     }
-    DriveSync._requestInFlight = true;
-    const prompt = DriveSync.connected ? '' : 'consent';
-    DriveSync._lastRequestAt = Date.now();
-    driveLog(`connect(): pidiendo token con prompt: '${prompt}' (DriveSync.connected=${DriveSync.connected})`);
-    DriveSync.tokenClient.requestAccessToken({ prompt });
+    driveLog(`connect(): DriveSync.connected=${DriveSync.connected}`);
+    DriveSync._sendRequest(DriveSync.connected ? '' : 'consent');
   },
 
   disconnect(){
