@@ -963,6 +963,31 @@ function saveExerciseFeedback(exerciseId, value){
 
 function clearTimer(){ if(state.timerId){ clearInterval(state.timerId); state.timerId=null; } }
 
+// Beep corto al terminar cada segmento (trabajo o descanso), usando WebAudio para no depender
+// de un archivo de audio (mantiene la app 100% offline).
+let _beepCtx = null;
+function primeBeepAudio(){
+  try{
+    if(!_beepCtx) _beepCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if(_beepCtx.state === 'suspended') _beepCtx.resume();
+  }catch(e){}
+}
+function playBeep(){
+  try{
+    if(!_beepCtx) _beepCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if(_beepCtx.state === 'suspended') _beepCtx.resume();
+    const osc = _beepCtx.createOscillator();
+    const gain = _beepCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.2, _beepCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, _beepCtx.currentTime + 0.3);
+    osc.connect(gain).connect(_beepCtx.destination);
+    osc.start();
+    osc.stop(_beepCtx.currentTime + 0.3);
+  }catch(e){}
+}
+
 function fmt(s){
   const m = Math.floor(s/60);
   const ss = (s%60).toString().padStart(2,'0');
@@ -1083,6 +1108,7 @@ function startWorkout(){
   if(state.routine.length === 0) return;
   state.plan = buildPlan(state.routine, state.workoutStyle);
   if(state.plan.length === 0) return;
+  primeBeepAudio(); // desbloquea el audio en iOS: debe ocurrir dentro de un gesto de usuario (este click)
   state.screen = 'workout';
   state.step = 0;
   state.secondsLeft = state.workSeconds;
@@ -1090,7 +1116,30 @@ function startWorkout(){
   state.segmentStartedAt = Date.now();
   state.exerciseLog = [];
   state.restSecondsTotal = 0;
+  state.paused = false;
+  state.pausedAt = null;
   clearTimer();
+  state.timerId = setInterval(tick, 1000);
+  render();
+}
+
+// Pausa el entrenamiento (ej. si te interrumpen): detiene el timer sin perder el progreso.
+function pauseWorkout(){
+  if(state.paused || !state.timerId) return;
+  clearTimer();
+  state.paused = true;
+  state.pausedAt = Date.now();
+  render();
+}
+// Al reanudar, corremos las marcas de tiempo hacia adelante lo que duró la pausa,
+// para que el tiempo real trabajado (calorías) no cuente el rato en pausa.
+function resumeWorkout(){
+  if(!state.paused) return;
+  const pausedMs = Date.now() - state.pausedAt;
+  if(state.segmentStartedAt) state.segmentStartedAt += pausedMs;
+  if(state.startedAt) state.startedAt += pausedMs;
+  state.paused = false;
+  state.pausedAt = null;
   state.timerId = setInterval(tick, 1000);
   render();
 }
@@ -1111,6 +1160,7 @@ function closeSegment(kind){
 function tick(){
   state.secondsLeft--;
   if(state.secondsLeft < 0){
+    playBeep();
     if(state.screen === 'workout'){
       closeSegment('workout');
       if(state.step === state.plan.length-1){
@@ -1151,6 +1201,14 @@ function cancelEndEarly(){
   render();
 }
 function endWorkoutEarly(){
+  if(state.paused){
+    // descuenta el rato en pausa antes de cerrar el segmento, igual que al reanudar
+    const pausedMs = Date.now() - state.pausedAt;
+    if(state.segmentStartedAt) state.segmentStartedAt += pausedMs;
+    if(state.startedAt) state.startedAt += pausedMs;
+    state.paused = false;
+    state.pausedAt = null;
+  }
   closeSegment(state.screen === 'rest' ? 'rest' : 'workout');
   clearTimer();
   state.confirmEndEarly = false;
@@ -1548,9 +1606,30 @@ function renderEndEarlyControl(){
   return `<button class="btn-ghost btn-block" style="margin-top:10px;color:var(--chalk-dim);font-size:12.5px;" onclick="requestEndEarly()">Terminar rutina antes de tiempo</button>`;
 }
 
+function renderPauseOverlay(){
+  return `
+    <div class="card" style="text-align:center;">
+      <div class="eyebrow" style="margin-bottom:6px;">⏸ En pausa</div>
+      <p style="color:var(--chalk-dim);font-size:13px;margin:0 0 16px;">El tiempo no corre mientras esté en pausa.</p>
+      <button class="btn-primary btn-block" onclick="resumeWorkout()">▶ Reanudar</button>
+      ${renderEndEarlyControl()}
+    </div>
+  `;
+}
+
 function renderWorkout(){
   const entry = state.plan[state.step];
   const ex = entry.exercise;
+  if(state.paused){
+    return `
+      <header>
+        <div class="eyebrow">Entrenamiento</div>
+        <h1>Estación ${state.step+1} de ${state.plan.length}</h1>
+      </header>
+      ${renderProgress()}
+      ${renderPauseOverlay()}
+    `;
+  }
   return `
     <header>
       <div class="eyebrow">Entrenamiento</div>
@@ -1570,7 +1649,10 @@ function renderWorkout(){
       ${renderIllustration(ex)}
       <ul class="cues"><li>${ex.desc}</li></ul>
       <div class="timer">${fmt(state.secondsLeft<0?0:state.secondsLeft)}</div>
-      <button class="btn-ghost btn-block" onclick="skipStep()">Saltar</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn-ghost" style="flex:1;" onclick="pauseWorkout()">⏸ Pausar</button>
+        <button class="btn-ghost" style="flex:1;" onclick="skipStep()">Saltar</button>
+      </div>
       ${renderEndEarlyControl()}
     </div>
   `;
@@ -1578,6 +1660,13 @@ function renderWorkout(){
 
 function renderRest(){
   const nextEntry = state.step < state.plan.length-1 ? state.plan[state.step+1] : null;
+  if(state.paused){
+    return `
+      <header><div class="eyebrow">Entrenamiento</div><h1>Descanso</h1></header>
+      ${renderProgress()}
+      ${renderPauseOverlay()}
+    `;
+  }
   return `
     <header><div class="eyebrow">Entrenamiento</div><h1>Descanso</h1></header>
     ${renderProgress()}
@@ -1586,7 +1675,10 @@ function renderRest(){
       ${nextEntry
         ? `<div class="next-label">Sigue · Serie ${nextEntry.setNumber} de ${nextEntry.totalSets}</div><div class="next-name">${nextEntry.exercise.name}</div>`
         : `<div class="next-label">Última estación completada</div>`}
-      <button class="btn-ghost btn-block" style="margin-top:14px;" onclick="skipStep()">Saltar descanso</button>
+      <div style="display:flex;gap:8px;margin-top:14px;">
+        <button class="btn-ghost" style="flex:1;" onclick="pauseWorkout()">⏸ Pausar</button>
+        <button class="btn-ghost" style="flex:1;" onclick="skipStep()">Saltar descanso</button>
+      </div>
       ${renderEndEarlyControl()}
     </div>
   `;
