@@ -495,11 +495,42 @@ function generateRoutine(equipment, muscleGroups, opts){
   const lastSessionIds = lastSession ? (lastSession.exerciseIds||[]) : [];
 
   const picked = [];
+  const pickedIds = new Set();
   const skippedGroups = []; // grupos elegidos pero sin ningún ejercicio seguro (todo excluido por dolor)
   const order = ['piernas','pecho','espalda','hombros','brazos','core','cardio'];
   let groupsToUse = order.filter(g => muscleGroups.includes(g));
   if(opts.maxStations) groupsToUse = groupsToUse.slice(0, opts.maxStations);
 
+  // copia superficial + series/peso ajustados: el usuario puede editar la rutina de hoy sin tocar EXERCISES
+  function makeEntry(raw){
+    const ex = { ...raw };
+    if(setsAdjust) ex.sets = Math.min(6, Math.max(1, (ex.sets||1) + setsAdjust));
+    if(exerciseHasWeight(ex)){
+      const bodyWeightKg = loadSettings().weightKg || null;
+      const sugg = suggestWeightFor(ex.id, ex, history, bodyWeightKg);
+      ex.weightKg = sugg.suggestedKg;
+      ex.lastWeightKg = sugg.lastKg;
+      ex.isFirstTimeWeight = sugg.isFirstTime;
+    } else {
+      ex.weightKg = null;
+    }
+    return ex;
+  }
+
+  // Elige al azar entre los 2-3 candidatos disponibles menos usados recientemente (todos igual
+  // de válidos por ese criterio) en vez de tomar siempre el primero — sin esto, "Regenerar" es
+  // 100% determinista (mismo equipo + grupos + historial => mismo resultado) y tocar el botón
+  // no cambia nada. `pool` ya viene ordenado por antigüedad de uso.
+  function pickRandomFromPool(pool){
+    const available = pool.filter(c => !pickedIds.has(c.id));
+    if(available.length === 0) return null;
+    const topCandidates = available.slice(0, Math.min(3, available.length));
+    return topCandidates[Math.floor(Math.random() * topCandidates.length)];
+  }
+
+  // Un pool ordenado por grupo, calculado una sola vez: se reutiliza tanto para la primera
+  // elección de cada grupo como para las rondas de relleno que completan el mínimo.
+  const groupPools = {};
   groupsToUse.forEach(group=>{
     const allCandidates = EXERCISES.filter(ex =>
       ex.group === group && ex.equip.some(eq => equipment.includes(eq))
@@ -523,28 +554,38 @@ function generateRoutine(equipment, muscleGroups, opts){
       return new Date(d1) - new Date(d2);
     });
 
-    // Elige al azar entre los 2-3 menos usados recientemente (todos igual de válidos por ese
-    // criterio) en vez de tomar siempre el primero — sin esto, "Regenerar" es 100% determinista
-    // (mismo equipo + grupos + historial => mismo resultado) y tocar el botón no cambia nada.
-    const topCandidates = pool.slice(0, Math.min(3, pool.length));
-    const choice = topCandidates[Math.floor(Math.random() * topCandidates.length)];
-
-    // copia superficial: el usuario puede editar series/reps de la rutina de hoy sin tocar EXERCISES
-    const ex = { ...choice };
-    if(setsAdjust) ex.sets = Math.min(6, Math.max(1, (ex.sets||1) + setsAdjust));
-    if(exerciseHasWeight(ex)){
-      const bodyWeightKg = loadSettings().weightKg || null;
-      const sugg = suggestWeightFor(ex.id, ex, history, bodyWeightKg);
-      ex.weightKg = sugg.suggestedKg;
-      ex.lastWeightKg = sugg.lastKg;
-      ex.isFirstTimeWeight = sugg.isFirstTime;
-    } else {
-      ex.weightKg = null;
-    }
-    picked.push(ex);
+    groupPools[group] = pool;
   });
 
-  return { routine: picked, skippedGroups };
+  // Primera pasada: un ejercicio por grupo disponible.
+  Object.keys(groupPools).forEach(group=>{
+    const choice = pickRandomFromPool(groupPools[group]);
+    if(!choice) return;
+    pickedIds.add(choice.id);
+    picked.push(makeEntry(choice));
+  });
+
+  // Relleno: si el mínimo de ejercicios del nivel de intensidad de hoy pide más de uno por
+  // grupo, reparte el cupo faltante entre los MISMOS grupos seleccionados (nunca grupos nuevos),
+  // en rondas — grupo 1, grupo 2, ..., grupo 1 de nuevo — sin repetir ningún id ya elegido. Si un
+  // grupo se queda sin variedad, se salta esa vuelta y el cupo sigue con los demás.
+  const groupsWithPool = Object.keys(groupPools);
+  let needed = Math.max(0, (opts.minExercises || 0) - picked.length);
+  while(needed > 0 && groupsWithPool.length > 0){
+    let addedThisLap = false;
+    for(const group of groupsWithPool){
+      if(needed === 0) break;
+      const choice = pickRandomFromPool(groupPools[group]);
+      if(!choice) continue; // este grupo ya no tiene más variedad disponible, se salta
+      pickedIds.add(choice.id);
+      picked.push(makeEntry(choice));
+      needed--;
+      addedThisLap = true;
+    }
+    if(!addedThisLap) break; // ningún grupo pudo aportar más — todos agotados, no forzar
+  }
+
+  return { routine: picked, skippedGroups, shortfall: needed };
 }
 
 // Arma la lista real de estaciones a recorrer (una por cada serie de cada ejercicio),
@@ -587,6 +628,8 @@ let state = {
   secondsLeft: WORK,
   workSeconds: WORK,        // segundos de trabajo de la sesión (viene del check-in de intensidad)
   maxStations: null,        // límite de estaciones si la intensidad está reducida
+  minExercises: 5,          // mínimo de ejercicios distintos según el nivel de intensidad del día
+  routineShortfall: 0,      // >0 si no hubo suficiente variedad para llegar a minExercises
   intensityNote: '',
   driveRecommendation: null,  // { groups, labels, detail } basado en historial completo de Drive
   driveRecStatus: 'idle',     // idle | loading | ready | unavailable
@@ -848,6 +891,13 @@ function registerHistorySessionToHealth(key){
 // en UN nivel de intensidad para toda la sesión. "Suave" gana si hay conflicto entre
 // señales (lectura conservadora): basta una sola señal negativa para bajar el nivel,
 // pero "Desafiante" necesita que TODAS las señales sean positivas.
+// Mínimo de ejercicios distintos en la rutina según el nivel de intensidad del día. "Suave"
+// va debajo de "Normal" a propósito: coincide con el maxStations=4 que ya limita ese nivel como
+// techo, así que el mínimo no le pelea a ese tope — la sesión se siente ligera en general, no
+// solo con menos series por ejercicio.
+function minExercisesForLevel(level){
+  return level === 'suave' ? 4 : level === 'desafiante' ? 6 : 5;
+}
 function computeIntensityLevel(feeling, painZones, health){
   const realPainZones = (painZones||[]).filter(z => z !== 'ninguno');
   const lowSleep = !!(health && typeof health.sleepHours === 'number' && health.sleepHours < 6);
@@ -872,6 +922,7 @@ function computeIntensityLevel(feeling, painZones, health){
   const setsAdjust = level === 'suave' ? -1 : level === 'desafiante' ? 1 : 0;
   const workSeconds = level === 'suave' ? Math.max(25, WORK - 10) : WORK;
   const maxStations = level === 'suave' ? 4 : null;
+  const minExercises = minExercisesForLevel(level);
 
   const hasGoodSleepData = !!(health && typeof health.sleepHours === 'number' && health.sleepHours >= 7);
   const reasons = [];
@@ -894,7 +945,7 @@ function computeIntensityLevel(feeling, painZones, health){
   }
   if(level === 'desafiante') note += ' Si puedes, sube un poco el peso.';
 
-  return { level, note, workSeconds, maxStations, setsAdjust, excludeIds: [...excludeIds] };
+  return { level, note, workSeconds, maxStations, setsAdjust, minExercises, excludeIds: [...excludeIds] };
 }
 function handleShortcutCallback(){
   const params = new URLSearchParams(location.search);
@@ -1068,6 +1119,7 @@ function confirmCheckin(){
     const setsAdjust = lvl === 'suave' ? -1 : lvl === 'desafiante' ? 1 : 0;
     const workSeconds = lvl === 'suave' ? Math.max(25, WORK - 10) : WORK;
     const maxStations = lvl === 'suave' ? 4 : null;
+    const minExercises = minExercisesForLevel(lvl);
     const levelLabel = { suave:'Suave', normal:'Normal', desafiante:'Desafiante' }[lvl];
     let note = `Hoy: rutina ${levelLabel} (ajustado manualmente).`;
     if(computed.excludeIds.length){
@@ -1075,7 +1127,7 @@ function confirmCheckin(){
       const zoneLabels = realPainZones.map(z => ((PAIN_ZONES.find(p=>p.id===z)||{}).label || z).toLowerCase());
       note += ` Evitamos ejercicios de ${zoneLabels.join(', ')}.`;
     }
-    result = { level: lvl, note, workSeconds, maxStations, setsAdjust, excludeIds: computed.excludeIds };
+    result = { level: lvl, note, workSeconds, maxStations, setsAdjust, minExercises, excludeIds: computed.excludeIds };
   }
   state.intensityResult = result;
   state.screen = 'equip';
@@ -1100,25 +1152,30 @@ function toggleMuscle(id){
 }
 function confirmMuscles(){
   if(state.muscleGroups.length === 0){ return; }
-  const intensity = state.intensityResult || { workSeconds: WORK, maxStations: null, setsAdjust: 0, excludeIds: [], note: '' };
+  const intensity = state.intensityResult || { workSeconds: WORK, maxStations: null, setsAdjust: 0, excludeIds: [], minExercises: 5, note: '' };
   state.workSeconds = intensity.workSeconds;
   state.maxStations = intensity.maxStations;
+  state.minExercises = intensity.minExercises;
   state.intensityNote = intensity.note;
   const result = generateRoutine(state.equipment, state.muscleGroups, {
     maxStations: state.maxStations, excludeIds: intensity.excludeIds, setsAdjust: intensity.setsAdjust,
+    minExercises: state.minExercises,
   });
   state.routine = result.routine;
   state.skippedGroups = result.skippedGroups;
+  state.routineShortfall = result.shortfall;
   state.screen = 'overview';
   render();
 }
 function regenerate(){
-  const intensity = state.intensityResult || { maxStations: state.maxStations, setsAdjust: 0, excludeIds: [] };
+  const intensity = state.intensityResult || { maxStations: state.maxStations, setsAdjust: 0, excludeIds: [], minExercises: state.minExercises || 5 };
   const result = generateRoutine(state.equipment, state.muscleGroups, {
     maxStations: state.maxStations, excludeIds: intensity.excludeIds, setsAdjust: intensity.setsAdjust,
+    minExercises: intensity.minExercises,
   });
   state.routine = result.routine;
   state.skippedGroups = result.skippedGroups;
+  state.routineShortfall = result.shortfall;
   render();
 }
 function adjustSets(i, delta){
@@ -1592,8 +1649,13 @@ function renderOverview(){
         return `${label}: sin alternativa segura para tu dolor con el equipo de hoy, se omitió.`;
       }).join(' ')
     : '';
-  const intensityBanner = state.intensityNote
-    ? `<div class="card" style="border-color:var(--accent);"><p style="font-size:13px;color:var(--chalk-dim);margin:0;">${state.intensityNote}${skippedNote}</p></div>`
+  // No hubo suficiente variedad de ejercicios distintos (con tu equipo/exclusiones de hoy) para
+  // llegar al mínimo del nivel de intensidad — se muestra igual con los que sí hay, sin forzar.
+  const shortfallNote = state.routineShortfall > 0
+    ? ` ℹ️ Solo encontramos ${state.routine.length} ejercicios posibles con tu equipo y grupos de hoy.`
+    : '';
+  const intensityBanner = (state.intensityNote || shortfallNote)
+    ? `<div class="card" style="border-color:var(--accent);"><p style="font-size:13px;color:var(--chalk-dim);margin:0;">${state.intensityNote}${skippedNote}${shortfallNote}</p></div>`
     : '';
   const totalStations = buildPlan(state.routine, state.workoutStyle).length;
   const styleCard = `
