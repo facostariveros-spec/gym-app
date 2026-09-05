@@ -523,8 +523,14 @@ function generateRoutine(equipment, muscleGroups, opts){
       return new Date(d1) - new Date(d2);
     });
 
+    // Elige al azar entre los 2-3 menos usados recientemente (todos igual de válidos por ese
+    // criterio) en vez de tomar siempre el primero — sin esto, "Regenerar" es 100% determinista
+    // (mismo equipo + grupos + historial => mismo resultado) y tocar el botón no cambia nada.
+    const topCandidates = pool.slice(0, Math.min(3, pool.length));
+    const choice = topCandidates[Math.floor(Math.random() * topCandidates.length)];
+
     // copia superficial: el usuario puede editar series/reps de la rutina de hoy sin tocar EXERCISES
-    const ex = { ...pool[0] };
+    const ex = { ...choice };
     if(setsAdjust) ex.sets = Math.min(6, Math.max(1, (ex.sets||1) + setsAdjust));
     if(exerciseHasWeight(ex)){
       const bodyWeightKg = loadSettings().weightKg || null;
