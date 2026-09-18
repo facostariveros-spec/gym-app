@@ -613,7 +613,7 @@ function buildPlan(routine, style){
 /* ================= ESTADO DE LA APP ================= */
 let state = {
   tab: 'rutina',            // 'rutina' | 'historial' | 'nube'
-  screen: 'checkin',        // checkin -> equip -> muscles -> overview -> workout -> rest -> done
+  screen: 'checkin',        // checkin -> equip -> muscles -> overview -> workout -> done
   feeling: 'normal',        // 'cansado' | 'normal' | 'energico'
   painZones: [],            // ids de PAIN_ZONES marcados (excluye 'ninguno' de la lógica real)
   intensityOverride: null,  // 'suave' | 'normal' | 'desafiante' | null — forzado manual en check-in
@@ -624,6 +624,8 @@ let state = {
   skippedGroups: [],        // grupos seleccionados que se omitieron por no tener alternativa sin dolor
   workoutStyle: 'circuito', // 'circuito' | 'porEjercicio' — se carga desde settings al iniciar
   plan: [],                 // estaciones reales a recorrer (una por cada serie), armadas al empezar
+  completedExerciseIds: [], // ejercicios marcados como completados en la lista de rutina
+  restSecondsLeft: 0,       // temporizador de descanso opcional, nunca avanza la rutina
   step: 0,
   secondsLeft: WORK,
   workSeconds: WORK,        // segundos de trabajo de la sesión (viene del check-in de intensidad)
@@ -1210,18 +1212,45 @@ function startWorkout(){
   if(state.routine.length === 0) return;
   state.plan = buildPlan(state.routine, state.workoutStyle);
   if(state.plan.length === 0) return;
-  primeBeepAudio(); // desbloquea el audio en iOS: debe ocurrir dentro de un gesto de usuario (este click)
   state.screen = 'workout';
-  state.step = 0;
-  state.secondsLeft = state.workSeconds;
+  state.completedExerciseIds = [];
+  state.restSecondsLeft = 0;
   state.startedAt = Date.now();
-  state.segmentStartedAt = Date.now();
   state.exerciseLog = [];
   state.restSecondsTotal = 0;
-  state.paused = false;
-  state.pausedAt = null;
   clearTimer();
-  state.timerId = setInterval(tick, 1000);
+  render();
+}
+
+function toggleExercise(id){
+  const ex = state.routine.find(item => item.id === id);
+  if(!ex) return;
+  const index = state.completedExerciseIds.indexOf(id);
+  if(index >= 0){
+    state.completedExerciseIds.splice(index, 1);
+    state.exerciseLog = state.exerciseLog.filter(entry => entry.id !== id);
+  } else {
+    state.completedExerciseIds.push(id);
+    // El checklist no impone un cronómetro de trabajo; para las estimaciones se conserva
+    // la duración configurada por serie cuando el usuario confirma el ejercicio completo.
+    for(let set = 0; set < (ex.sets || 1); set++){
+      state.exerciseLog.push({ id: ex.id, group: ex.group, seconds: state.workSeconds });
+    }
+  }
+  render();
+}
+
+function startRest(){
+  clearTimer();
+  state.restSecondsLeft = REST;
+  state.timerId = setInterval(()=>{
+    state.restSecondsLeft--;
+    if(state.restSecondsLeft <= 0){
+      state.restSecondsLeft = 0;
+      clearTimer();
+    }
+    render();
+  }, 1000);
   render();
 }
 
@@ -1317,6 +1346,8 @@ function endWorkoutEarly(){
   finishWorkout();
 }
 function finishWorkout(){
+  if(state.completedExerciseIds.length !== state.routine.length) return;
+  clearTimer();
   const today = new Date().toISOString().slice(0,10);
   const completedAt = new Date().toISOString();
   const durationMinutes = state.startedAt
@@ -1334,7 +1365,7 @@ function finishWorkout(){
   const calories = computeCalories(state.exerciseLog, state.restSecondsTotal, bodyWeightKg);
 
   const stationsPlanned = state.plan.length;
-  const stationsCompleted = Math.min(stationsPlanned, state.step + 1);
+  const stationsCompleted = Math.min(stationsPlanned, state.exerciseLog.length);
 
   // peso usado y series realmente completadas por ejercicio (para la sugerencia de la próxima vez)
   const exerciseSetsCompleted = {};
@@ -1657,28 +1688,14 @@ function renderOverview(){
   const intensityBanner = (state.intensityNote || shortfallNote)
     ? `<div class="card" style="border-color:var(--accent);"><p style="font-size:13px;color:var(--chalk-dim);margin:0;">${state.intensityNote}${skippedNote}${shortfallNote}</p></div>`
     : '';
-  const totalStations = buildPlan(state.routine, state.workoutStyle).length;
-  const styleCard = `
-    <div class="card">
-      <div class="eyebrow" style="margin-bottom:8px;">Estilo de entrenamiento</div>
-      <div class="style-toggle">
-        <button class="style-opt ${state.workoutStyle==='circuito'?'active':''}" onclick="setWorkoutStyle('circuito')">🔄 Circuito combinado</button>
-        <button class="style-opt ${state.workoutStyle==='porEjercicio'?'active':''}" onclick="setWorkoutStyle('porEjercicio')">📋 Por ejercicio</button>
-      </div>
-      <p style="color:var(--chalk-dim);font-size:12px;margin-top:8px;">
-        ${state.workoutStyle==='circuito'
-          ? 'Rota entre ejercicios por ronda: una serie de cada uno, y repite.'
-          : 'Completa todas las series de un ejercicio antes de pasar al siguiente.'}
-      </p>
-    </div>`;
+  const totalStations = state.routine.reduce((total, ex)=>total + (ex.sets || 1), 0);
   return `
     <header>
       <div class="eyebrow">Tu rutina de hoy</div>
       <h1>${state.routine.length} ejercicios · ${totalStations} series</h1>
-      <div class="sub">${state.workSeconds}s trabajo / 15s descanso por serie</div>
+      <div class="sub">Marca cada ejercicio conforme lo completes</div>
     </header>
     ${intensityBanner}
-    ${styleCard}
     <div class="card">${rows}</div>
     <button class="btn-primary btn-block" onclick="startWorkout()">Empezar entrenamiento</button>
     <div style="display:flex;gap:10px;margin-top:10px;">
@@ -1725,43 +1742,33 @@ function renderPauseOverlay(){
 }
 
 function renderWorkout(){
-  const entry = state.plan[state.step];
-  const ex = entry.exercise;
-  if(state.paused){
+  const completed = state.completedExerciseIds.length;
+  const allDone = completed === state.routine.length;
+  const items = state.routine.map((ex, index)=>{
+    const done = state.completedExerciseIds.includes(ex.id);
     return `
-      <header>
-        <div class="eyebrow">Entrenamiento</div>
-        <h1>Estación ${state.step+1} de ${state.plan.length}</h1>
-      </header>
-      ${renderProgress()}
-      ${renderPauseOverlay()}
-    `;
-  }
+      <button class="checklist-item ${done?'complete':''}" onclick="toggleExercise('${ex.id}')" aria-pressed="${done}">
+        <span class="checkmark" aria-hidden="true">${done ? '✓' : ''}</span>
+        <span class="checklist-copy">
+          <span class="checklist-title">${index + 1}. ${ex.name}</span>
+          <span class="checklist-meta">${ex.group} · ${ex.sets} × ${ex.reps}${ex.weightKg != null ? ' · ' + formatWeight(ex.weightKg) : ''}</span>
+          <span class="checklist-cue">${ex.desc}</span>
+        </span>
+      </button>`;
+  }).join('');
   return `
     <header>
       <div class="eyebrow">Entrenamiento</div>
-      <h1>Estación ${state.step+1} de ${state.plan.length}</h1>
+      <h1>Tu rutina</h1>
+      <div class="sub">${completed} de ${state.routine.length} ejercicios completados</div>
     </header>
-    ${renderProgress()}
-    <div class="card">
-      <div class="stage-label"><span>En curso</span><span class="round">${ex.group}</span></div>
-      <div class="ex-name">${ex.name}</div>
-      <div class="ex-reps-big">Serie ${entry.setNumber} de ${entry.totalSets} · ${ex.reps}</div>
-      ${ex.weightKg != null ? `
-      <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin:-4px 0 14px;">
-        <button class="stepper" onclick="adjustCurrentWeight(-1)">−</button>
-        <span style="font-size:18px;font-weight:800;color:var(--accent);">${formatWeight(ex.weightKg)}</span>
-        <button class="stepper" onclick="adjustCurrentWeight(1)">+</button>
-      </div>` : ''}
-      ${renderIllustration(ex)}
-      <ul class="cues"><li>${ex.desc}</li></ul>
-      <div class="timer">${fmt(state.secondsLeft<0?0:state.secondsLeft)}</div>
-      <div style="display:flex;gap:8px;">
-        <button class="btn-ghost" style="flex:1;" onclick="pauseWorkout()">⏸ Pausar</button>
-        <button class="btn-ghost" style="flex:1;" onclick="skipStep()">Saltar</button>
-      </div>
-      ${renderEndEarlyControl()}
+    <div class="checklist-progress"><span style="width:${Math.round((completed/state.routine.length)*100)}%"></span></div>
+    <div class="checklist">${items}</div>
+    <div class="rest-control">
+      <div><b>Descanso opcional</b><span>${state.restSecondsLeft ? fmt(state.restSecondsLeft) : 'Inicia 15 segundos cuando lo necesites'}</span></div>
+      <button class="btn-ghost rest-button" onclick="startRest()">${state.restSecondsLeft ? 'Reiniciar' : '15 s'}</button>
     </div>
+    <button class="btn-primary btn-block finish-workout ${allDone?'':'disabled'}" onclick="finishWorkout()" ${allDone?'':'disabled'}>Terminar entrenamiento</button>
   `;
 }
 
