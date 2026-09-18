@@ -19,6 +19,7 @@ const EQUIPMENT_OPTIONS = [
   { id: 'pull_up_bar',       label: 'Barra de dominadas',   icon: '➖' },
   { id: 'elliptical_cardio', label: 'Elíptica / Cardio',    icon: '🚴' },
 ];
+const COMPLETE_GYM_EQUIPMENT = EQUIPMENT_OPTIONS.map(item=>item.id);
 
 /* ---------- Grupos musculares (qué te sientes list @  para trabajar hoy) ---------- */
 const MUSCLE_GROUPS = [
@@ -1352,6 +1353,7 @@ function toggleEquip(id){
   if(i>=0) state.equipment.splice(i,1); else state.equipment.push(id);
   render();
 }
+function selectCompleteGym(){ state.equipment = [...COMPLETE_GYM_EQUIPMENT]; render(); }
 function confirmEquip(){
   saveSettings({ ...loadSettings(), equipment: state.equipment });
   state.screen = 'muscles';
@@ -1857,6 +1859,8 @@ function renderEquip(){
       <h1>¿Qué equipo tienes hoy?</h1>
       <div class="sub">Marca o desmarca según lo que tengas disponible</div>
     </header>
+    <button class="btn-ghost btn-block" style="margin:16px 0 0;border-color:var(--accent);color:var(--accent);" onclick="selectCompleteGym()">🏢 Gimnasio completo · selección Smart Fit</button>
+    <div class="sub" style="text-align:center;margin-top:7px;">Peso libre, barras, bancos, poleas, máquinas de pierna, dominadas y cardio.</div>
     <div class="equip-grid">${items}</div>
     <button class="btn-primary btn-block" onclick="confirmEquip()">Continuar</button>
     <div style="text-align:center;margin-top:10px;">
@@ -2127,7 +2131,10 @@ function renderRest(){
 function renderDone(){
   const s = state.lastSession;
   const groupsWorked = s ? (s.groups||[]) : [...new Set(state.routine.map(e=>e.group))];
-  const stretchItems = groupsWorked.filter(g=>STRETCHES[g]).map(g=>`
+  // Siempre damos tres opciones: primero las zonas trabajadas y luego estiramientos generales
+  // que no repiten una zona ya sugerida.
+  const stretchGroups = [...new Set([...groupsWorked.filter(g=>STRETCHES[g]), 'piernas','espalda','hombros','core','pecho','brazos','cardio'])].slice(0,3);
+  const stretchItems = stretchGroups.map(g=>`
     <div class="stretch-card"><img src="${stretchImageUrl(g)}" alt="Estiramiento de ${g}" loading="lazy"><span><b style="text-transform:capitalize">${g}</b><br><span class="tag">${STRETCHES[g]}</span></span></div>
   `).join('');
   const calories = s ? s.calories : null;
