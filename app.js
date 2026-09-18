@@ -388,6 +388,7 @@ function suggestWeightFor(exId, ex, history, bodyWeightKg){
 const LS_SETTINGS = 'rutina-gym:settings';
 const LS_HISTORY  = 'rutina-gym:history';
 const LS_HEALTH   = 'rutina-gym:health';
+const LS_ACTIVE_WORKOUT = 'rutina-gym:active-workout';
 
 function loadSettings(){
   try{
@@ -408,6 +409,51 @@ function saveHistorySession(session){
   const h = loadHistory();
   h.unshift(session); // más reciente primero
   try{ localStorage.setItem(LS_HISTORY, JSON.stringify(h.slice(0,200))); }catch(e){}
+}
+
+// La nube es un respaldo, nunca la fuente de verdad durante una rutina. Guardamos un borrador
+// local después de cada check para poder volver exactamente al punto actual si Safari/PWA se
+// recarga, pierde foco o Google interrumpe una renovación de token.
+function saveActiveWorkout(){
+  if(state.screen !== 'workout' || !state.routine.length) return;
+  const draft = {
+    savedAt: new Date().toISOString(),
+    routine: state.routine,
+    equipment: state.equipment,
+    muscleGroups: state.muscleGroups,
+    intensityResult: state.intensityResult,
+    workSeconds: state.workSeconds,
+    completedExerciseIds: state.completedExerciseIds,
+    exerciseLog: state.exerciseLog,
+    restSecondsTotal: state.restSecondsTotal,
+    startedAt: state.startedAt,
+  };
+  try{ localStorage.setItem(LS_ACTIVE_WORKOUT, JSON.stringify(draft)); }catch(e){}
+}
+function clearActiveWorkout(){
+  try{ localStorage.removeItem(LS_ACTIVE_WORKOUT); }catch(e){}
+}
+function restoreActiveWorkout(){
+  try{
+    const raw = localStorage.getItem(LS_ACTIVE_WORKOUT);
+    if(!raw) return false;
+    const draft = JSON.parse(raw);
+    if(!Array.isArray(draft.routine) || draft.routine.length === 0) return false;
+    state.routine = draft.routine;
+    state.equipment = Array.isArray(draft.equipment) ? draft.equipment : state.equipment;
+    state.muscleGroups = Array.isArray(draft.muscleGroups) ? draft.muscleGroups : state.muscleGroups;
+    state.intensityResult = draft.intensityResult || null;
+    state.workSeconds = draft.workSeconds || WORK;
+    state.completedExerciseIds = Array.isArray(draft.completedExerciseIds) ? draft.completedExerciseIds : [];
+    state.exerciseLog = Array.isArray(draft.exerciseLog) ? draft.exerciseLog : [];
+    state.restSecondsTotal = draft.restSecondsTotal || 0;
+    state.startedAt = draft.startedAt || Date.now();
+    state.plan = buildPlan(state.routine, state.workoutStyle);
+    state.screen = 'workout';
+    state.tab = 'rutina';
+    state.workoutRecovered = true;
+    return true;
+  }catch(e){ return false; }
 }
 // Identificador estable de una sesión, aunque sea vieja y no tenga completedAt.
 function sessionKey(s){
@@ -716,6 +762,7 @@ let state = {
   completedExerciseIds: [], // ejercicios marcados como completados en la lista de rutina
   restSecondsLeft: 0,       // temporizador de descanso opcional, nunca avanza la rutina
   expandedExerciseId: null, // ejercicio cuyas imágenes se están viendo en grande
+  workoutRecovered: false,  // muestra que se restauró un borrador local tras una recarga
   step: 0,
   secondsLeft: WORK,
   workSeconds: WORK,        // segundos de trabajo de la sesión (viene del check-in de intensidad)
@@ -747,15 +794,15 @@ let state = {
 if(typeof DriveSync !== 'undefined'){
   driveLog('app.js: llamando a DriveSync.init() — location.search =', location.search);
   DriveSync.init(()=>{
-    // Reconexión silenciosa proactiva: si ya habías conectado antes (el flag persistido
-    // en localStorage), renueva el token apenas la librería de Google esté lista, en vez
-    // de esperar a que alguna otra acción (sync, dashboard, etc.) la dispare por su cuenta.
-    // connectDrive() ya pide el token con prompt:'' cuando DriveSync.connected es true, así
-    // que esto nunca muestra el popup de consentimiento — solo lo reintenta si de verdad falló.
+    // Reconexión silenciosa en segundo plano: no usamos connectDrive() aquí porque sus renders
+    // de estado no deben interferir con una rutina recuperada o en curso.
     driveLog('app.js: onReady de DriveSync.init — DriveSync.connected =', DriveSync.connected);
     if(DriveSync.connected){
-      driveLog('app.js: flag activo, intentando reconexión silenciosa proactiva vía connectDrive()');
-      connectDrive();
+      driveLog('app.js: flag activo, intentando reconexión silenciosa en segundo plano');
+      DriveSync.connect(
+        ()=>{ state.syncStatus = 'ok'; },
+        ()=>{ state.syncStatus = 'idle'; }
+      );
     } else {
       driveLog('app.js: no hay flag de conexión previa, no se intenta reconectar');
     }
@@ -806,6 +853,7 @@ function restoreFromDrive(){
         if(data.settings) saveSettings(data.settings);
         if(data.history) localStorage.setItem(LS_HISTORY, JSON.stringify(data.history));
         initState();
+        restoreActiveWorkout(); // una restauración manual nunca debe borrar una rutina en curso
         state.dashboardStatus = 'idle'; state.dashboard = null; // el historial cambió, recalcular al volver a entrar
       }
       state.syncStatus = 'ok';
@@ -920,6 +968,7 @@ function initState(){
   state.intensityResult = null;
 }
 initState();
+restoreActiveWorkout();
 
 /* ---------- Puente con Apple Health vía Apple Shortcuts ---------- */
 const HEALTH_SYNC_SHORTCUT = 'Rutina Gym - Leer Salud';
@@ -1306,10 +1355,12 @@ function startWorkout(){
   state.completedExerciseIds = [];
   state.restSecondsLeft = 0;
   state.expandedExerciseId = null;
+  state.workoutRecovered = false;
   state.startedAt = Date.now();
   state.exerciseLog = [];
   state.restSecondsTotal = 0;
   clearTimer();
+  saveActiveWorkout();
   render();
 }
 
@@ -1337,12 +1388,14 @@ function toggleExercise(id){
       state.exerciseLog.push({ id: ex.id, group: ex.group, seconds: state.workSeconds });
     }
   }
+  saveActiveWorkout();
   render();
 }
 
 function startRest(){
   clearTimer();
   state.restSecondsLeft = REST;
+  saveActiveWorkout();
   state.timerId = setInterval(()=>{
     state.restSecondsLeft--;
     if(state.restSecondsLeft <= 0){
@@ -1495,9 +1548,11 @@ function finishWorkout(){
     exercisePlannedSets,
   };
   saveHistorySession(session);
+  clearActiveWorkout();
   autoSyncIfConnected();
   state.dashboardStatus = 'idle'; state.dashboard = null; // el historial cambió, recalcular al volver a entrar
   state.lastSession = session;
+  state.workoutRecovered = false;
   state.healthLogStatus = 'idle';
   state.feedbackSaveStatus = 'idle';
   state.screen = 'done';
@@ -1505,6 +1560,7 @@ function finishWorkout(){
 }
 function newRoutine(){
   clearTimer();
+  clearActiveWorkout();
   state.screen = 'checkin';
   state.step = 0;
   state.feeling = 'normal';
@@ -1512,6 +1568,7 @@ function newRoutine(){
   state.intensityOverride = null;
   state.intensityResult = null;
   state.expandedExerciseId = null;
+  state.workoutRecovered = false;
   // el historial cambió (se acaba de guardar/subir una sesión) — refresca la recomendación de Drive
   state.driveRecommendation = null;
   state.driveRecStatus = 'idle';
@@ -1869,6 +1926,7 @@ function renderWorkout(){
       <h1>Tu rutina</h1>
       <div class="sub">${completed} de ${state.routine.length} ejercicios completados</div>
     </header>
+    ${state.workoutRecovered ? `<div class="card" style="border-color:var(--good);padding:11px 13px;"><p style="margin:0;font-size:12.5px;color:var(--chalk-dim);">✓ Recuperamos tu rutina en curso desde este teléfono.</p></div>` : ''}
     <div class="checklist-progress"><span style="width:${Math.round((completed/state.routine.length)*100)}%"></span></div>
     <div class="checklist">${items}</div>
     <div class="rest-control">

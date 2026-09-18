@@ -94,10 +94,15 @@ const DriveSync = {
       DriveSync._timedOutIds.add(reqId);
       DriveSync._requestInFlight = false;
       DriveSync.connected = false;
-      try{
-        localStorage.removeItem(DRIVE_CONNECTED_KEY);
-        driveLog('flag de localStorage BORRADO por timeout de reconexión');
-      }catch(e){ driveLog('no se pudo borrar el flag de localStorage', e); }
+      // Un timeout silencioso suele ser Safari/iOS bloqueando el iframe de Google, no que el
+      // usuario haya desconectado la cuenta. Conservamos su preferencia para volver a intentar
+      // en la próxima sincronización manual, en vez de alternar visualmente entre conectado y
+      // desconectado en cada recarga.
+      if(prompt !== ''){
+        try{ localStorage.removeItem(DRIVE_CONNECTED_KEY); }catch(e){ driveLog('no se pudo borrar el flag de localStorage', e); }
+      } else {
+        driveLog('timeout silencioso: se conserva el flag de conexión para no desconectar al usuario');
+      }
       DriveSync._drainQueue('error', {
         error: 'reconnect_timeout',
         error_description: `Google no respondió en ${timeoutMs}ms (prompt='${prompt}', id=${reqId})`,
@@ -146,10 +151,14 @@ const DriveSync = {
               driveLog(`respuesta de Google: ERROR tras ${elapsed}ms — código="${resp.error}" descripción="${resp.error_description||'(sin descripción)'}" objeto completo:`, resp);
               console.error('Auth error', resp);
               DriveSync.connected = false;
-              try{
-                localStorage.removeItem(DRIVE_CONNECTED_KEY);
-                driveLog('flag de localStorage BORRADO porque la reconexión falló de verdad');
-              }catch(e){ driveLog('no se pudo borrar el flag de localStorage', e); }
+              if(DriveSync._activePrompt !== ''){
+                try{
+                  localStorage.removeItem(DRIVE_CONNECTED_KEY);
+                  driveLog('flag de localStorage borrado porque el consentimiento falló');
+                }catch(e){ driveLog('no se pudo borrar el flag de localStorage', e); }
+              } else {
+                driveLog('fallo silencioso: se conserva el flag de conexión para no desconectar al usuario');
+              }
               DriveSync._drainQueue('error', resp);
               return;
             }
