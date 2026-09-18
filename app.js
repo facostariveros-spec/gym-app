@@ -110,6 +110,11 @@ function renderIllustration(ex){
     </div>`;
 }
 
+function renderExerciseThumbnail(ex){
+  if(NO_PHOTO.has(ex.id)) return `<span class="thumbnail-fallback" aria-hidden="true">🏋️</span>`;
+  return `<img src="exercises/${ex.id}/0.jpg" alt="" loading="lazy">`;
+}
+
 /* ---------- Respaldo SVG: solo para ejercicios sin foto confiable disponible ---------- */
 const FALLBACK_POSES = {
   press_horizontal: (a,b)=>`
@@ -626,6 +631,7 @@ let state = {
   plan: [],                 // estaciones reales a recorrer (una por cada serie), armadas al empezar
   completedExerciseIds: [], // ejercicios marcados como completados en la lista de rutina
   restSecondsLeft: 0,       // temporizador de descanso opcional, nunca avanza la rutina
+  expandedExerciseId: null, // ejercicio cuyas imágenes se están viendo en grande
   step: 0,
   secondsLeft: WORK,
   workSeconds: WORK,        // segundos de trabajo de la sesión (viene del check-in de intensidad)
@@ -1215,10 +1221,20 @@ function startWorkout(){
   state.screen = 'workout';
   state.completedExerciseIds = [];
   state.restSecondsLeft = 0;
+  state.expandedExerciseId = null;
   state.startedAt = Date.now();
   state.exerciseLog = [];
   state.restSecondsTotal = 0;
   clearTimer();
+  render();
+}
+
+function openExerciseImages(id){
+  state.expandedExerciseId = id;
+  render();
+}
+function closeExerciseImages(){
+  state.expandedExerciseId = null;
   render();
 }
 
@@ -1411,6 +1427,7 @@ function newRoutine(){
   state.painZones = [];
   state.intensityOverride = null;
   state.intensityResult = null;
+  state.expandedExerciseId = null;
   // el historial cambió (se acaba de guardar/subir una sesión) — refresca la recomendación de Drive
   state.driveRecommendation = null;
   state.driveRecStatus = 'idle';
@@ -1747,14 +1764,20 @@ function renderWorkout(){
   const items = state.routine.map((ex, index)=>{
     const done = state.completedExerciseIds.includes(ex.id);
     return `
-      <button class="checklist-item ${done?'complete':''}" onclick="toggleExercise('${ex.id}')" aria-pressed="${done}">
-        <span class="checkmark" aria-hidden="true">${done ? '✓' : ''}</span>
+      <div class="checklist-item ${done?'complete':''}">
+        <button class="check-toggle" onclick="toggleExercise('${ex.id}')" aria-label="${done ? 'Desmarcar' : 'Marcar'} ${ex.name}" aria-pressed="${done}">
+          <span class="checkmark" aria-hidden="true">${done ? '✓' : ''}</span>
+        </button>
+        <button class="checklist-thumb" onclick="openExerciseImages('${ex.id}')" aria-label="Ver imágenes de ${ex.name}">
+          ${renderExerciseThumbnail(ex)}
+          <span class="expand-icon" aria-hidden="true">⤢</span>
+        </button>
         <span class="checklist-copy">
           <span class="checklist-title">${index + 1}. ${ex.name}</span>
           <span class="checklist-meta">${ex.group} · ${ex.sets} × ${ex.reps}${ex.weightKg != null ? ' · ' + formatWeight(ex.weightKg) : ''}</span>
           <span class="checklist-cue">${ex.desc}</span>
         </span>
-      </button>`;
+      </div>`;
   }).join('');
   return `
     <header>
@@ -1769,7 +1792,24 @@ function renderWorkout(){
       <button class="btn-ghost rest-button" onclick="startRest()">${state.restSecondsLeft ? 'Reiniciar' : '15 s'}</button>
     </div>
     <button class="btn-primary btn-block finish-workout ${allDone?'':'disabled'}" onclick="finishWorkout()" ${allDone?'':'disabled'}>Terminar entrenamiento</button>
+    ${renderExerciseModal()}
   `;
+}
+
+function renderExerciseModal(){
+  const ex = state.routine.find(item => item.id === state.expandedExerciseId);
+  if(!ex) return '';
+  return `
+    <div class="exercise-modal" role="dialog" aria-modal="true" aria-label="Imágenes de ${ex.name}">
+      <div class="exercise-modal-card">
+        <div class="exercise-modal-head">
+          <div><div class="eyebrow">Técnica</div><h2>${ex.name}</h2></div>
+          <button class="modal-close" onclick="closeExerciseImages()" aria-label="Cerrar imágenes">×</button>
+        </div>
+        ${renderIllustration(ex)}
+        <p>${ex.desc}</p>
+      </div>
+    </div>`;
 }
 
 function renderRest(){

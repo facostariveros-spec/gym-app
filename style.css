@@ -158,18 +158,29 @@ button:active{ transform: scale(0.98); }
   overflow:hidden; margin-bottom:12px;
 }
 .checklist-item{
-  appearance:none; width:100%; display:flex; gap:12px; align-items:flex-start;
+  width:100%; display:flex; gap:10px; align-items:flex-start;
   padding:14px; border:0; border-bottom:1px solid var(--line); border-radius:0;
   background:transparent; color:var(--chalk); text-align:left; font-weight:400;
 }
 .checklist-item:last-child{ border-bottom:0; }
 .checklist-item.complete{ background:#1f3026; }
+.check-toggle{ padding:0; background:none; border:0; border-radius:7px; }
 .checkmark{
   flex:0 0 25px; width:25px; height:25px; border:2px solid var(--chalk-dim);
   border-radius:7px; display:grid; place-items:center; color:#112015; font-size:17px;
   font-weight:900; line-height:1; margin-top:2px;
 }
 .complete .checkmark{ background:var(--good); border-color:var(--good); }
+.checklist-thumb{
+  position:relative; flex:0 0 58px; width:58px; height:58px; padding:0; overflow:hidden;
+  background:var(--plate); border:1px solid var(--line); border-radius:9px;
+}
+.checklist-thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+.thumbnail-fallback{ width:100%; height:100%; display:grid; place-items:center; font-size:25px; }
+.expand-icon{
+  position:absolute; right:3px; bottom:2px; padding:1px 3px; border-radius:4px;
+  background:rgba(0,0,0,.65); color:var(--chalk); font-size:13px; line-height:1;
+}
 .checklist-copy{ min-width:0; display:block; }
 .checklist-title{ display:block; font-size:15px; font-weight:800; line-height:1.25; }
 .complete .checklist-title{ color:var(--chalk-dim); text-decoration:line-through; }
@@ -183,6 +194,21 @@ button:active{ transform: scale(0.98); }
 .rest-control span{ display:block; color:var(--chalk-dim); font-size:11.5px; margin-top:2px; }
 .rest-button{ padding:9px 12px; font-size:13px; white-space:nowrap; }
 .finish-workout.disabled{ opacity:.45; cursor:not-allowed; }
+
+/* visor ampliado de imágenes de ejercicio */
+.exercise-modal{
+  position:fixed; z-index:10; inset:0; display:flex; align-items:center; justify-content:center;
+  padding:20px 16px calc(20px + env(safe-area-inset-bottom,0px)); background:rgba(0,0,0,.72);
+}
+.exercise-modal-card{
+  width:min(100%, 470px); max-height:90vh; overflow:auto; background:var(--iron-2);
+  border:1px solid var(--line); border-radius:16px; padding:16px;
+}
+.exercise-modal-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:12px; }
+.exercise-modal-head h2{ font-size:20px; margin:3px 0 0; line-height:1.2; }
+.modal-close{ flex:0 0 36px; width:36px; height:36px; padding:0; font-size:28px; line-height:1; background:var(--plate); color:var(--chalk); }
+.exercise-modal-card .photo-pair{ margin-bottom:12px; }
+.exercise-modal-card p{ color:var(--chalk-dim); font-size:13px; line-height:1.45; margin:0; }
 
 /* history */
 .stat-row{ display:flex; gap:10px; margin-bottom:14px; }
