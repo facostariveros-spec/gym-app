@@ -49,11 +49,11 @@ const PAIN_ZONES = [
 // Ejercicios que se excluyen de la rutina si hay dolor marcado en esa zona
 // (criterio biomecánico general, no una recomendación clínica).
 const PAIN_EXERCISE_EXCLUSIONS = {
-  rodillas:      ['squat_barbell','lunge_db','bw_squat','bw_lunge','goblet_squat','burpee'],
-  espalda_baja:  ['rdl_barbell','rdl_db','row_barbell','kb_swing','burpee','superman'],
-  hombros:       ['ohp_barbell','shoulder_press_db','pull_up','lat_pulldown'],
-  muñecas:       ['pushup','plank','mountain_climber','burpee','bench_press_db'],
-  cuello:        ['ohp_barbell','pull_up'],
+  rodillas:      ['squat_barbell','lunge_db','bw_squat','bw_lunge','goblet_squat','burpee','front_squat_barbell','barbell_hip_thrust','barbell_deadlift','bulgarian_split_squat_db','step_up_db','calf_raise_db','sumo_squat_db','cable_pull_through','cable_kickback','leg_press_machine','calf_raise_machine','hip_abduction_machine','hip_adduction_machine','kb_deadlift','kb_reverse_lunge','band_squat','band_lateral_walk','reverse_lunge_bw','wall_sit','calf_raise_bw','single_leg_glute_bridge','jumping_jacks','high_knees'],
+  espalda_baja:  ['rdl_barbell','rdl_db','row_barbell','kb_swing','burpee','superman','barbell_hip_thrust','barbell_deadlift','db_chest_supported_row','cable_pull_through','cable_woodchop','kb_deadlift','kb_row','band_row','band_pull_apart'],
+  hombros:       ['ohp_barbell','shoulder_press_db','pull_up','lat_pulldown','db_lateral_raise','db_rear_delt_fly','db_arnold_press','cable_reverse_fly','cable_lateral_raise','kb_press','band_shoulder_press','band_lateral_raise','chin_up','scapular_pull','pike_pushup'],
+  muñecas:       ['pushup','plank','mountain_climber','burpee','bench_press_db','barbell_bench_press','db_floor_press','db_fly','kb_floor_press','diamond_pushup','bench_tricep_dip','side_plank','hanging_knee_raise'],
+  cuello:        ['ohp_barbell','pull_up','shoulder_press_db','db_arnold_press','kb_press','band_shoulder_press','chin_up','scapular_pull','pike_pushup'],
 };
 // Mapeo más amplio zona -> grupo, solo para el aviso visual en la pantalla de grupos
 // (la exclusión real de ejercicios ya la garantiza PAIN_EXERCISE_EXCLUSIONS).
@@ -67,8 +67,20 @@ const PAIN_GROUP_WARNING = {
 
 /* ---------- Ilustración: fotos reales (free-exercise-db, dominio público) ---------- */
 // Cada ejercicio con foto tiene exercises/<id>/0.jpg (inicio) y 1.jpg (final).
-// Los 3 ejercicios sin match confiable en la base de fotos usan el dibujo SVG de respaldo.
-const NO_PHOTO = new Set(['band_row', 'band_chest_press', 'burpee']);
+// Los ejercicios sin foto específica usan el dibujo SVG de respaldo.
+const NO_PHOTO = new Set([
+  'band_row', 'band_chest_press', 'burpee',
+  'front_squat_barbell', 'barbell_hip_thrust', 'barbell_deadlift', 'barbell_bench_press', 'barbell_curl',
+  'db_floor_press', 'db_fly', 'db_chest_supported_row', 'db_lateral_raise', 'db_rear_delt_fly', 'db_arnold_press',
+  'hammer_curl_db', 'overhead_tricep_db', 'tricep_kickback_db', 'bulgarian_split_squat_db', 'step_up_db', 'calf_raise_db', 'sumo_squat_db',
+  'cable_fly', 'cable_reverse_fly', 'cable_lateral_raise', 'cable_pull_through', 'cable_kickback', 'cable_hammer_curl', 'cable_woodchop',
+  'leg_press_machine', 'calf_raise_machine', 'hip_abduction_machine', 'hip_adduction_machine',
+  'kb_deadlift', 'kb_reverse_lunge', 'kb_press', 'kb_row', 'kb_floor_press', 'kb_halo',
+  'band_squat', 'band_lateral_walk', 'band_shoulder_press', 'band_lateral_raise', 'band_curl', 'band_tricep_extension', 'band_pull_apart',
+  'chin_up', 'hanging_knee_raise', 'scapular_pull',
+  'reverse_lunge_bw', 'wall_sit', 'calf_raise_bw', 'single_leg_glute_bridge', 'pike_pushup', 'diamond_pushup', 'bench_tricep_dip',
+  'dead_bug', 'bicycle_crunch', 'side_plank', 'leg_raise', 'bird_dog', 'jumping_jacks', 'high_knees'
+]);
 
 // Dirección del movimiento para la flecha, por ejercicio (solo los que tienen foto).
 const EX_DIRECTION = {
@@ -219,6 +231,79 @@ const EXERCISES = [
     desc:'Acostado boca arriba, empuja la cadera hacia arriba apretando los glúteos, baja con control.' },
   { id:'superman', name:'Superman', group:'core', equip:['bodyweight'], sets:3, reps:'12 reps', pose:'core_dynamic',
     desc:'Boca abajo, levanta brazos y piernas a la vez apretando la espalda baja, baja despacio.' },
+
+  /* Barra + rack */
+  { id:'front_squat_barbell', name:'Sentadilla frontal con barra', group:'piernas', equip:['barbell_rack'], sets:3, reps:'8-10 reps', pose:'squat', desc:'Apoya la barra sobre los hombros, mantén el pecho alto y baja con las rodillas alineadas a los pies.' },
+  { id:'barbell_hip_thrust', name:'Hip thrust con barra', group:'piernas', equip:['barbell_rack','bench'], sets:3, reps:'10-12 reps', pose:'hinge', desc:'Apoya la espalda alta en la banca y empuja la cadera arriba apretando glúteos; evita arquear la zona lumbar.' },
+  { id:'barbell_deadlift', name:'Peso muerto convencional con barra', group:'piernas', equip:['barbell_rack'], sets:3, reps:'6-8 reps', pose:'hinge', desc:'Barra cerca de las espinillas, pecho abierto y espalda neutra; empuja el piso para levantarte.' },
+  { id:'barbell_bench_press', name:'Press de banca con barra', group:'pecho', equip:['barbell_rack','bench'], sets:3, reps:'8-10 reps', pose:'press_horizontal', desc:'Baja la barra con control hacia el pecho y empuja manteniendo los hombros estables sobre la banca.' },
+  { id:'barbell_curl', name:'Curl de bíceps con barra', group:'brazos', equip:['barbell_rack'], sets:3, reps:'10-12 reps', pose:'curl', desc:'Mantén los codos cerca del torso y evita balancear la espalda al subir la barra.' },
+
+  /* Mancuernas */
+  { id:'db_floor_press', name:'Press en suelo con mancuernas', group:'pecho', equip:['dumbbells'], sets:3, reps:'10-12 reps', pose:'press_horizontal', desc:'Acostado en el suelo, baja hasta tocar suavemente los codos y empuja las mancuernas con control.' },
+  { id:'db_fly', name:'Aperturas con mancuernas', group:'pecho', equip:['dumbbells','bench'], sets:3, reps:'10-12 reps', pose:'press_horizontal', desc:'Con ligera flexión de codos, abre los brazos y vuelve a juntar las mancuernas sin perder el control.' },
+  { id:'db_chest_supported_row', name:'Remo inclinado con mancuernas', group:'espalda', equip:['dumbbells','bench'], sets:3, reps:'10 reps', pose:'row', desc:'Pecho apoyado en banca inclinada, lleva los codos atrás y aprieta los omóplatos.' },
+  { id:'db_lateral_raise', name:'Elevaciones laterales', group:'hombros', equip:['dumbbells'], sets:3, reps:'12-15 reps', pose:'press_overhead', desc:'Eleva las mancuernas hacia los lados hasta la altura de hombros, sin encoger el cuello.' },
+  { id:'db_rear_delt_fly', name:'Pájaros con mancuernas', group:'hombros', equip:['dumbbells'], sets:3, reps:'12-15 reps', pose:'row', desc:'Inclina el torso, abre los brazos hacia los lados y evita usar impulso de la espalda.' },
+  { id:'db_arnold_press', name:'Press Arnold con mancuernas', group:'hombros', equip:['dumbbells'], sets:3, reps:'10 reps', pose:'press_overhead', desc:'Empieza con palmas hacia ti, rota al subir y termina con los brazos sobre los hombros.' },
+  { id:'hammer_curl_db', name:'Curl martillo con mancuernas', group:'brazos', equip:['dumbbells'], sets:3, reps:'10-12 reps', pose:'curl', desc:'Mantén las palmas enfrentadas y sube sin mover los codos hacia delante.' },
+  { id:'overhead_tricep_db', name:'Extensión de tríceps sobre cabeza', group:'brazos', equip:['dumbbells'], sets:3, reps:'10-12 reps', pose:'extension', desc:'Sostén una mancuerna arriba, flexiona los codos detrás de la cabeza y extiéndelos sin abrirlos demasiado.' },
+  { id:'tricep_kickback_db', name:'Patada de tríceps con mancuerna', group:'brazos', equip:['dumbbells'], sets:3, reps:'12 reps c/lado', pose:'extension', desc:'Con torso inclinado y codo fijo atrás, extiende el brazo hasta contraer el tríceps.' },
+  { id:'bulgarian_split_squat_db', name:'Sentadilla búlgara con mancuernas', group:'piernas', equip:['dumbbells','bench'], sets:3, reps:'8-10 reps c/pierna', pose:'squat', desc:'Apoya el pie trasero en la banca, baja recto y empuja con el talón de la pierna delantera.' },
+  { id:'step_up_db', name:'Subida a banca con mancuernas', group:'piernas', equip:['dumbbells','bench'], sets:3, reps:'10 reps c/pierna', pose:'squat', desc:'Sube a la banca apoyando todo el pie y evita impulsarte excesivamente con la pierna de abajo.' },
+  { id:'calf_raise_db', name:'Elevación de pantorrillas con mancuernas', group:'piernas', equip:['dumbbells'], sets:3, reps:'15 reps', pose:'extension', desc:'Eleva los talones lentamente, pausa arriba y baja hasta sentir estiramiento en pantorrillas.' },
+  { id:'sumo_squat_db', name:'Sentadilla sumo con mancuerna', group:'piernas', equip:['dumbbells'], sets:3, reps:'12 reps', pose:'squat', desc:'Abre los pies y puntas ligeramente hacia fuera; baja con la mancuerna entre las piernas y sube apretando glúteos.' },
+
+  /* Poleas y máquinas */
+  { id:'cable_fly', name:'Aperturas en polea', group:'pecho', equip:['cable_machine'], sets:3, reps:'12 reps', pose:'press_horizontal', desc:'Con un paso al frente, junta las manos frente al pecho manteniendo una ligera flexión de codos.' },
+  { id:'cable_reverse_fly', name:'Aperturas inversas en polea', group:'hombros', equip:['cable_machine'], sets:3, reps:'12 reps', pose:'row', desc:'Abre los brazos hacia atrás a la altura de hombros y controla el regreso para trabajar deltoides posteriores.' },
+  { id:'cable_lateral_raise', name:'Elevación lateral en polea', group:'hombros', equip:['cable_machine'], sets:3, reps:'12 reps c/lado', pose:'press_overhead', desc:'Eleva el brazo hacia el lado hasta el hombro sin inclinar el torso.' },
+  { id:'cable_pull_through', name:'Pull-through en polea', group:'piernas', equip:['cable_machine'], sets:3, reps:'12 reps', pose:'hinge', desc:'De espaldas a la polea, lleva la cadera atrás y extiéndela con fuerza apretando glúteos.' },
+  { id:'cable_kickback', name:'Patada de glúteo en polea', group:'piernas', equip:['cable_machine'], sets:3, reps:'12 reps c/pierna', pose:'extension', desc:'Con el torso estable, empuja el talón hacia atrás sin girar la cadera.' },
+  { id:'cable_hammer_curl', name:'Curl martillo en polea', group:'brazos', equip:['cable_machine'], sets:3, reps:'12 reps', pose:'curl', desc:'Usa cuerda con palmas enfrentadas y mantén los codos fijos junto al cuerpo.' },
+  { id:'cable_woodchop', name:'Leñador en polea', group:'core', equip:['cable_machine'], sets:3, reps:'10 reps c/lado', pose:'core_dynamic', desc:'Rota el torso de forma controlada, moviendo el cable en diagonal y manteniendo la cadera estable.' },
+  { id:'leg_press_machine', name:'Prensa de piernas', group:'piernas', equip:['leg_machine'], sets:3, reps:'10-12 reps', pose:'extension', desc:'Apoya toda la planta del pie, baja con control y empuja sin bloquear completamente las rodillas.' },
+  { id:'calf_raise_machine', name:'Pantorrilla en máquina', group:'piernas', equip:['leg_machine'], sets:3, reps:'12-15 reps', pose:'extension', desc:'Sube los talones con control, pausa arriba y baja lentamente hasta el estiramiento.' },
+  { id:'hip_abduction_machine', name:'Abducción de cadera en máquina', group:'piernas', equip:['leg_machine'], sets:3, reps:'12-15 reps', pose:'extension', desc:'Abre las piernas contra la resistencia sin despegar la espalda del respaldo.' },
+  { id:'hip_adduction_machine', name:'Aducción de cadera en máquina', group:'piernas', equip:['leg_machine'], sets:3, reps:'12-15 reps', pose:'extension', desc:'Cierra las piernas con control y evita usar impulso al regresar.' },
+
+  /* Kettlebell */
+  { id:'kb_deadlift', name:'Peso muerto con kettlebell', group:'piernas', equip:['kettlebell'], sets:3, reps:'12 reps', pose:'hinge', desc:'Lleva la cadera atrás, toma la kettlebell entre los pies y sube con espalda neutra.' },
+  { id:'kb_reverse_lunge', name:'Zancada inversa con kettlebell', group:'piernas', equip:['kettlebell'], sets:3, reps:'10 reps c/pierna', pose:'squat', desc:'Sostén la kettlebell junto al pecho, da un paso atrás y baja de forma estable.' },
+  { id:'kb_press', name:'Press de hombro con kettlebell', group:'hombros', equip:['kettlebell'], sets:3, reps:'8 reps c/lado', pose:'press_overhead', desc:'Desde la posición de rack, empuja la kettlebell sobre la cabeza manteniendo el abdomen firme.' },
+  { id:'kb_row', name:'Remo con kettlebell', group:'espalda', equip:['kettlebell'], sets:3, reps:'10 reps c/lado', pose:'row', desc:'Apoya una mano si lo necesitas, lleva el codo hacia la cadera y aprieta el omóplato.' },
+  { id:'kb_floor_press', name:'Press en suelo con kettlebell', group:'pecho', equip:['kettlebell'], sets:3, reps:'10 reps c/lado', pose:'press_horizontal', desc:'Acostado, baja el codo con control hacia el suelo y presiona la kettlebell verticalmente.' },
+  { id:'kb_halo', name:'Halo con kettlebell', group:'core', equip:['kettlebell'], sets:3, reps:'10 reps c/lado', pose:'core_dynamic', desc:'Rodea la cabeza con la kettlebell lentamente, mantén costillas abajo y el tronco estable.' },
+
+  /* Bandas */
+  { id:'band_squat', name:'Sentadilla con banda', group:'piernas', equip:['resistance_band'], sets:3, reps:'15 reps', pose:'squat', desc:'Coloca la banda sobre las rodillas o bajo los pies y baja manteniendo las rodillas hacia fuera.' },
+  { id:'band_lateral_walk', name:'Caminata lateral con banda', group:'piernas', equip:['resistance_band'], sets:3, reps:'12 pasos c/lado', pose:'squat', desc:'Mantén una ligera sentadilla y da pasos laterales sin dejar que las rodillas se junten.' },
+  { id:'band_shoulder_press', name:'Press de hombro con banda', group:'hombros', equip:['resistance_band'], sets:3, reps:'12 reps', pose:'press_overhead', desc:'Pisa la banda y empuja las manos sobre la cabeza sin arquear la espalda.' },
+  { id:'band_lateral_raise', name:'Elevación lateral con banda', group:'hombros', equip:['resistance_band'], sets:3, reps:'15 reps', pose:'press_overhead', desc:'Pisa la banda y eleva los brazos hacia los lados con los hombros lejos de las orejas.' },
+  { id:'band_curl', name:'Curl de bíceps con banda', group:'brazos', equip:['resistance_band'], sets:3, reps:'15 reps', pose:'curl', desc:'Pisa la banda, mantén los codos pegados al cuerpo y sube las manos con control.' },
+  { id:'band_tricep_extension', name:'Extensión de tríceps con banda', group:'brazos', equip:['resistance_band'], sets:3, reps:'15 reps', pose:'extension', desc:'Ancla la banda arriba y extiende los codos hacia abajo sin mover los hombros.' },
+  { id:'band_pull_apart', name:'Pull-apart con banda', group:'espalda', equip:['resistance_band'], sets:3, reps:'15 reps', pose:'row', desc:'Con brazos al frente, separa la banda hasta abrir el pecho y juntar los omóplatos.' },
+
+  /* Barra de dominadas */
+  { id:'chin_up', name:'Dominadas supinas', group:'espalda', equip:['pull_up_bar'], sets:3, reps:'6-8 reps', pose:'pull_vertical', desc:'Usa palmas hacia ti, lleva el pecho a la barra y baja de forma controlada.' },
+  { id:'hanging_knee_raise', name:'Elevación de rodillas colgado', group:'core', equip:['pull_up_bar'], sets:3, reps:'10-12 reps', pose:'core_dynamic', desc:'Cuelga con los hombros activos y sube las rodillas al pecho sin balancearte.' },
+  { id:'scapular_pull', name:'Dominada escapular', group:'espalda', equip:['pull_up_bar'], sets:3, reps:'10 reps', pose:'pull_vertical', desc:'Desde el colgado, baja y eleva el cuerpo solo moviendo los omóplatos, con los codos rectos.' },
+
+  /* Peso corporal */
+  { id:'reverse_lunge_bw', name:'Zancada inversa', group:'piernas', equip:['bodyweight'], sets:3, reps:'12 reps c/pierna', pose:'squat', desc:'Da un paso atrás, baja con control y vuelve empujando el suelo con la pierna delantera.' },
+  { id:'wall_sit', name:'Sentadilla isométrica en pared', group:'piernas', equip:['bodyweight'], sets:3, reps:'30-45 seg', pose:'squat', desc:'Apoya la espalda en la pared, baja hasta una posición cómoda y mantén las rodillas alineadas.' },
+  { id:'calf_raise_bw', name:'Elevación de pantorrillas', group:'piernas', equip:['bodyweight'], sets:3, reps:'20 reps', pose:'extension', desc:'Eleva y baja los talones despacio, usando una pared solo para equilibrio si hace falta.' },
+  { id:'single_leg_glute_bridge', name:'Puente de glúteo a una pierna', group:'piernas', equip:['bodyweight'], sets:3, reps:'10 reps c/pierna', pose:'hinge', desc:'Mantén una pierna elevada y empuja la cadera arriba sin girarla hacia un lado.' },
+  { id:'pike_pushup', name:'Flexión pike', group:'hombros', equip:['bodyweight'], sets:3, reps:'8-10 reps', pose:'press_overhead', desc:'Con la cadera alta, baja la cabeza hacia el suelo entre las manos y empuja de vuelta.' },
+  { id:'diamond_pushup', name:'Flexión diamante', group:'brazos', equip:['bodyweight'], sets:3, reps:'8-12 reps', pose:'press_horizontal', desc:'Junta las manos bajo el pecho, baja con el cuerpo alineado y empuja usando pecho y tríceps.' },
+  { id:'bench_tricep_dip', name:'Fondos de tríceps en banca', group:'brazos', equip:['bodyweight','bench'], sets:3, reps:'10-12 reps', pose:'extension', desc:'Manos sobre la banca, baja flexionando los codos hacia atrás y sube sin encoger los hombros.' },
+  { id:'dead_bug', name:'Dead bug', group:'core', equip:['bodyweight'], sets:3, reps:'10 reps c/lado', pose:'core_dynamic', desc:'Con la espalda baja estable en el suelo, extiende brazo y pierna opuestos de forma controlada.' },
+  { id:'bicycle_crunch', name:'Bicicleta abdominal', group:'core', equip:['bodyweight'], sets:3, reps:'20 reps', pose:'core_dynamic', desc:'Alterna codo y rodilla opuestos sin tirar del cuello ni perder el control del abdomen.' },
+  { id:'side_plank', name:'Plancha lateral', group:'core', equip:['bodyweight'], sets:3, reps:'25-35 seg c/lado', pose:'plank', desc:'Apoya el antebrazo, eleva la cadera y mantén una línea recta de hombros a pies.' },
+  { id:'leg_raise', name:'Elevación de piernas', group:'core', equip:['bodyweight'], sets:3, reps:'10-15 reps', pose:'core_dynamic', desc:'Baja las piernas solo hasta donde puedas mantener la espalda baja apoyada en el suelo.' },
+  { id:'bird_dog', name:'Bird dog', group:'core', equip:['bodyweight'], sets:3, reps:'10 reps c/lado', pose:'core_dynamic', desc:'Desde cuatro apoyos, extiende brazo y pierna opuestos manteniendo la pelvis quieta.' },
+  { id:'jumping_jacks', name:'Jumping jacks', group:'cardio', equip:['bodyweight'], sets:3, reps:'30-45 seg', pose:'cardio', desc:'Salta abriendo piernas y brazos de forma suave; aterriza con las rodillas ligeramente flexionadas.' },
+  { id:'high_knees', name:'Rodillas altas', group:'cardio', equip:['bodyweight'], sets:3, reps:'30-45 seg', pose:'cardio', desc:'Corre en el sitio elevando las rodillas a un ritmo que puedas controlar sin perder la postura.' },
 ];
 
 /* ---------- Estiramientos sugeridos según grupo trabajado ---------- */
@@ -522,14 +607,13 @@ function generateRoutine(equipment, muscleGroups, opts){
     return ex;
   }
 
-  // Elige al azar entre los 2-3 candidatos disponibles menos usados recientemente (todos igual
-  // de válidos por ese criterio) en vez de tomar siempre el primero — sin esto, "Regenerar" es
-  // 100% determinista (mismo equipo + grupos + historial => mismo resultado) y tocar el botón
-  // no cambia nada. `pool` ya viene ordenado por antigüedad de uso.
+  // Elige al azar dentro de la mayor parte de los candidatos menos usados recientemente. Así
+  // "Regenerar" ofrece variedad real cuando hay muchos ejercicios, sin dejar de favorecer los
+  // que llevan más tiempo sin aparecer. `pool` ya viene ordenado por antigüedad de uso.
   function pickRandomFromPool(pool){
     const available = pool.filter(c => !pickedIds.has(c.id));
     if(available.length === 0) return null;
-    const topCandidates = available.slice(0, Math.min(3, available.length));
+    const topCandidates = available.slice(0, Math.max(3, Math.ceil(available.length * 0.75)));
     return topCandidates[Math.floor(Math.random() * topCandidates.length)];
   }
 
