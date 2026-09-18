@@ -122,11 +122,11 @@ button:active{ transform: scale(0.98); }
 /* ilustración inicio/final (foto real o respaldo SVG) */
 .photo-pair{
   display:flex; align-items:center; gap:2px; background: var(--plate);
-  border-radius:12px; padding:10px 8px; border:1px solid var(--line); margin-bottom:14px;
+  border-radius:12px; padding:10px 8px; border:1px solid var(--line); margin-bottom:14px; overflow:hidden;
 }
-.photo-frame{ flex:1; display:flex; flex-direction:column; align-items:center; min-width:0; }
+.photo-frame{ flex:1; display:flex; flex-direction:column; align-items:center; min-width:0; overflow:hidden; }
 .photo-frame img, .photo-frame svg{
-  width:100%; aspect-ratio:4/3; object-fit:cover; border-radius:8px; display:block;
+  width:100%; height:150px; max-width:100%; object-fit:contain; border-radius:8px; display:block;
 }
 .photo-frame.final img, .photo-frame.final svg{ box-shadow: 0 0 0 2px var(--accent); border-radius:8px; }
 .pose-tag{ font-size:10.5px; letter-spacing:1.2px; text-transform:uppercase; color: var(--chalk-dim); margin-top:6px; font-weight:700; }
@@ -201,7 +201,7 @@ button:active{ transform: scale(0.98); }
   padding:20px 16px calc(20px + env(safe-area-inset-bottom,0px)); background:rgba(0,0,0,.72);
 }
 .exercise-modal-card{
-  width:min(100%, 470px); max-height:90vh; overflow:auto; background:var(--iron-2);
+  width:min(100%, 600px); max-height:90vh; overflow:auto; background:var(--iron-2);
   border:1px solid var(--line); border-radius:16px; padding:16px;
 }
 .exercise-modal-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:12px; }
@@ -209,6 +209,13 @@ button:active{ transform: scale(0.98); }
 .modal-close{ flex:0 0 36px; width:36px; height:36px; padding:0; font-size:28px; line-height:1; background:var(--plate); color:var(--chalk); }
 .exercise-modal-card .photo-pair{ margin-bottom:12px; }
 .exercise-modal-card p{ color:var(--chalk-dim); font-size:13px; line-height:1.45; margin:0; }
+.checklist-actions{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.mini-control{ display:flex; align-items:center; gap:5px; color:var(--chalk-dim); font-size:11px; }
+.mini-control .stepper{ width:22px; height:22px; border-radius:6px; font-size:14px; }
+.swap-button{ padding:5px 8px; font-size:11px; border-radius:7px; }
+.stretch-card{ display:flex; gap:12px; align-items:center; padding:10px 0; border-top:1px solid var(--line); }
+.stretch-card:first-child{ border-top:0; }
+.stretch-card img{ width:70px; height:70px; border-radius:9px; object-fit:contain; background:var(--plate); }
 
 /* history */
 .stat-row{ display:flex; gap:10px; margin-bottom:14px; }

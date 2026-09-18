@@ -346,6 +346,14 @@ const STRETCHES = {
   core: 'Postura de niño o cobra suave para descomprimir la zona lumbar (30-40s).',
   cardio: 'Camina 1-2 min a paso lento para bajar el ritmo cardiaco antes de estirar.',
 };
+const STRETCH_IMAGE_SLUGS = {
+  piernas:'standing-quad-stretch', pecho:'doorway-chest-stretch', espalda:'cat-cow',
+  hombros:'cross-body-shoulder-stretch', brazos:'overhead-tricep-extension', core:'cobra-stretch', cardio:'walking'
+};
+function stretchImageUrl(group){
+  const slug = STRETCH_IMAGE_SLUGS[group];
+  return slug ? `https://raw.githubusercontent.com/RepDB/exercise-dataset/main/images/flat/${slug}-${group==='brazos' ? 'start' : 'main'}.webp` : '';
+}
 
 /* ---------- Peso por ejercicio: unidad, conversión, sugerencia ---------- */
 const KG_PER_LB = 0.45359237;
@@ -482,6 +490,7 @@ function restoreActiveWorkout(){
     state.screen = 'workout';
     state.tab = 'rutina';
     state.workoutRecovered = true;
+    startWorkoutClock();
     return true;
   }catch(e){ return false; }
 }
@@ -817,6 +826,7 @@ let state = {
   feedbackSaveStatus: 'idle', // idle | ok — feedback de "¿cómo se sintió?" por ejercicio en el done screen
   health: null,             // { sleepHours, restingHR, syncedAt }
   timerId: null,
+  workoutClockId: null,
   syncStatus: 'idle',       // idle | syncing | ok | error
 };
 
@@ -1229,6 +1239,12 @@ function saveExerciseFeedback(exerciseId, value){
 }
 
 function clearTimer(){ if(state.timerId){ clearInterval(state.timerId); state.timerId=null; } }
+function clearWorkoutClock(){ if(state.workoutClockId){ clearInterval(state.workoutClockId); state.workoutClockId=null; } }
+function startWorkoutClock(){
+  clearWorkoutClock();
+  state.workoutClockId = setInterval(()=>{ if(state.screen === 'workout') render(); }, 1000);
+}
+function workoutElapsed(){ return state.startedAt ? Math.max(0, Math.floor((Date.now()-state.startedAt)/1000)) : 0; }
 
 // Beep corto al terminar cada segmento (trabajo o descanso), usando WebAudio para no depender
 // de un archivo de audio (mantiene la app 100% offline).
@@ -1353,12 +1369,14 @@ function adjustSets(i, delta){
   const ex = state.routine[i];
   if(!ex) return;
   ex.sets = Math.min(6, Math.max(1, (ex.sets||1) + delta));
+  refreshWorkoutAfterEdit();
   render();
 }
 function adjustWeight(i, sign){
   const ex = state.routine[i];
   if(!ex || ex.weightKg == null) return;
   ex.weightKg = Math.max(0, ex.weightKg + sign*weightStepKg());
+  refreshWorkoutAfterEdit();
   render();
 }
 function displayReps(ex){ return ex.repsOverride || ex.reps; }
@@ -1370,6 +1388,38 @@ function adjustReps(i, delta){
   const low = Math.max(1, Number(match[1]) + delta);
   const high = match[2] ? Math.max(low, Number(match[2]) + delta) : null;
   ex.repsOverride = `${low}${high ? '-' + high : ''}${match[3]}`;
+  refreshWorkoutAfterEdit();
+  render();
+}
+function rebuildExerciseLog(){
+  state.exerciseLog = state.completedExerciseIds.flatMap(id=>{
+    const ex = state.routine.find(item=>item.id === id);
+    return ex ? Array.from({length:ex.sets||1}, ()=>({ id:ex.id, group:ex.group, seconds:state.workSeconds })) : [];
+  });
+}
+function refreshWorkoutAfterEdit(){
+  if(state.screen !== 'workout') return;
+  state.plan = buildPlan(state.routine, state.workoutStyle);
+  rebuildExerciseLog();
+  saveActiveWorkout();
+}
+function swapExercise(i){
+  const current = state.routine[i];
+  if(!current) return;
+  const excluded = (state.intensityResult && state.intensityResult.excludeIds) || [];
+  const inRoutine = new Set(state.routine.map(ex=>ex.id));
+  const choices = EXERCISES.filter(ex=>ex.group===current.group && !excluded.includes(ex.id) && !inRoutine.has(ex.id) && ex.equip.some(eq=>state.equipment.includes(eq)));
+  if(!choices.length) return;
+  const raw = choices[Math.floor(Math.random()*choices.length)];
+  const next = { ...raw, sets:current.sets, repsOverride:current.repsOverride };
+  if(exerciseHasWeight(next)){
+    const suggestion = suggestWeightFor(next.id, next, loadHistory(), loadSettings().weightKg || null);
+    next.weightKg = suggestion.suggestedKg; next.lastWeightKg = suggestion.lastKg; next.isFirstTimeWeight = suggestion.isFirstTime;
+  } else next.weightKg = null;
+  const wasDone = state.completedExerciseIds.includes(current.id);
+  state.routine[i] = next;
+  if(wasDone) state.completedExerciseIds = state.completedExerciseIds.filter(id=>id!==current.id);
+  refreshWorkoutAfterEdit();
   render();
 }
 // Ajuste "en vivo" durante el entrenamiento — muta el mismo objeto que ya usan las
@@ -1401,6 +1451,7 @@ function startWorkout(){
   state.exerciseLog = [];
   state.restSecondsTotal = 0;
   clearTimer();
+  startWorkoutClock();
   saveActiveWorkout();
   render();
 }
@@ -1542,6 +1593,7 @@ function endWorkoutEarly(){
 function finishWorkout(){
   if(state.completedExerciseIds.length === 0) return;
   clearTimer();
+  clearWorkoutClock();
   const today = new Date().toISOString().slice(0,10);
   const completedAt = new Date().toISOString();
   const durationMinutes = state.startedAt
@@ -1601,6 +1653,7 @@ function finishWorkout(){
 }
 function newRoutine(){
   clearTimer();
+  clearWorkoutClock();
   clearActiveWorkout();
   state.screen = 'checkin';
   state.step = 0;
@@ -1967,6 +2020,12 @@ function renderWorkout(){
           <span class="checklist-title">${index + 1}. ${ex.name}</span>
           <span class="checklist-meta">${ex.group} · ${ex.sets} × ${displayReps(ex)}${ex.weightKg != null ? ' · ' + formatWeight(ex.weightKg) : ''}</span>
           <span class="checklist-cue">${ex.desc}</span>
+          <span class="checklist-actions">
+            <span class="mini-control">Series <button class="stepper" onclick="adjustSets(${index},-1)">−</button><b>${ex.sets}</b><button class="stepper" onclick="adjustSets(${index},1)">+</button></span>
+            ${/seg|min/.test(ex.reps) ? '' : `<span class="mini-control">Reps <button class="stepper" onclick="adjustReps(${index},-1)">−</button><b>${displayReps(ex)}</b><button class="stepper" onclick="adjustReps(${index},1)">+</button></span>`}
+            ${ex.weightKg != null ? `<span class="mini-control">Peso <button class="stepper" onclick="adjustWeight(${index},-1)">−</button><b>${formatWeight(ex.weightKg)}</b><button class="stepper" onclick="adjustWeight(${index},1)">+</button></span>` : ''}
+            <button class="btn-ghost swap-button" onclick="swapExercise(${index})">↔ Cambiar</button>
+          </span>
         </span>
       </div>`;
   }).join('');
@@ -1975,6 +2034,7 @@ function renderWorkout(){
       <div class="eyebrow">Entrenamiento</div>
       <h1>Tu rutina</h1>
       <div class="sub">${completed} de ${state.routine.length} ejercicios completados</div>
+      <div class="sub" style="margin-top:5px;color:var(--accent);font-weight:700;">⏱ Tiempo total: ${fmt(workoutElapsed())}</div>
     </header>
     ${state.workoutRecovered ? `<div class="card" style="border-color:var(--good);padding:11px 13px;"><p style="margin:0;font-size:12.5px;color:var(--chalk-dim);">✓ Recuperamos tu rutina en curso desde este teléfono.</p></div>` : ''}
     <div class="checklist-progress"><span style="width:${Math.round((completed/state.routine.length)*100)}%"></span></div>
@@ -2034,7 +2094,7 @@ function renderDone(){
   const s = state.lastSession;
   const groupsWorked = s ? (s.groups||[]) : [...new Set(state.routine.map(e=>e.group))];
   const stretchItems = groupsWorked.filter(g=>STRETCHES[g]).map(g=>`
-    <div class="ex-row"><span><b style="text-transform:capitalize">${g}</b><br><span class="tag">${STRETCHES[g]}</span></span></div>
+    <div class="stretch-card"><img src="${stretchImageUrl(g)}" alt="Estiramiento de ${g}" loading="lazy"><span><b style="text-transform:capitalize">${g}</b><br><span class="tag">${STRETCHES[g]}</span></span></div>
   `).join('');
   const calories = s ? s.calories : null;
   const caloriesCard = calories != null
