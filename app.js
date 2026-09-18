@@ -82,6 +82,29 @@ const NO_PHOTO = new Set([
   'dead_bug', 'bicycle_crunch', 'side_plank', 'leg_raise', 'bird_dog', 'jumping_jacks', 'high_knees'
 ]);
 
+// Ilustraciones del catálogo libre RepDB para ejercicios que no tenían foto propia. El catálogo
+// ofrece imágenes consistentes de inicio/final; el crédito visible aparece en Ajustes.
+const REPDB_IMAGE_SLUGS = {
+  band_row:'band-pull-apart', band_chest_press:'cable-chest-press', burpee:'burpees',
+  front_squat_barbell:'front-squat', barbell_hip_thrust:'hip-thrust', barbell_deadlift:'deadlift', barbell_bench_press:'bench-press', barbell_curl:'barbell-curl',
+  db_floor_press:'dumbbell-floor-press', db_fly:'db-fly', db_chest_supported_row:'chest-supported-db-row', db_lateral_raise:'seated-dumbbell-lateral-raise', db_rear_delt_fly:'dumbbell-reverse-fly', db_arnold_press:'arnold-press',
+  hammer_curl_db:'hammer-curl', overhead_tricep_db:'overhead-tricep-extension', tricep_kickback_db:'tricep-kickback', bulgarian_split_squat_db:'bulgarian-split-squat', step_up_db:'step-ups', calf_raise_db:'dumbbell-calf-raise', sumo_squat_db:'db-sumo-squat',
+  cable_fly:'cable-fly', cable_reverse_fly:'rear-delt-fly', cable_lateral_raise:'cable-lateral-raise', cable_pull_through:'hip-thrust', cable_kickback:'cable-kickback', cable_hammer_curl:'cable-hammer-curl', cable_woodchop:'cable-crunch',
+  leg_press_machine:'leg-press', calf_raise_machine:'machine-calf-raise', hip_abduction_machine:'hip-abduction', hip_adduction_machine:'hip-adduction',
+  kb_deadlift:'kettlebell-deadlift', kb_reverse_lunge:'kettlebell-reverse-lunge', kb_press:'double-kettlebell-overhead-press', kb_row:'one-arm-kettlebell-row', kb_floor_press:'kettlebell-floor-press', kb_halo:'kettlebell-halo',
+  band_squat:'banded-squat', band_lateral_walk:'banded-lateral-walk', band_shoulder_press:'bodyweight-overhead-press', band_lateral_raise:'bodyweight-lateral-raise', band_curl:'banded-standing-curl', band_tricep_extension:'tricep-pushdown', band_pull_apart:'band-pull-apart',
+  chin_up:'chin-ups', hanging_knee_raise:'hanging-knee-raise', scapular_pull:'scapular-pull-ups',
+  reverse_lunge_bw:'bodyweight-reverse-lunge', wall_sit:'wall-sit', calf_raise_bw:'bodyweight-calf-raise', single_leg_glute_bridge:'single-leg-glute-bridge', pike_pushup:'pike-push-ups', diamond_pushup:'diamond-push-ups', bench_tricep_dip:'bench-dips',
+  dead_bug:'dead-bug', bicycle_crunch:'bicycle-crunch', side_plank:'side-plank', leg_raise:'lying-leg-raise', bird_dog:'bird-dog', jumping_jacks:'jumping-jacks', high_knees:'high-knees'
+};
+const REPDB_SINGLE_POSE = new Set(['burpees','wall-sit','side-plank','high-knees']);
+function repdbImageUrl(ex, phase){
+  const slug = REPDB_IMAGE_SLUGS[ex.id];
+  if(!slug) return null;
+  const suffix = REPDB_SINGLE_POSE.has(slug) ? 'main' : phase;
+  return `https://raw.githubusercontent.com/RepDB/exercise-dataset/main/images/flat/${slug}-${suffix}.webp`;
+}
+
 // Dirección del movimiento para la flecha, por ejercicio (solo los que tienen foto).
 const EX_DIRECTION = {
   squat_barbell:'down', rdl_barbell:'down', ohp_barbell:'up', row_barbell:'pull',
@@ -106,7 +129,12 @@ function renderIllustration(ex){
   const dir = EX_DIRECTION[ex.id];
   const arrow = dir ? `<div class="illus-arrow">${arrowIcon(dir)}</div>` : `<div class="illus-arrow"></div>`;
   let frameA, frameB;
-  if(NO_PHOTO.has(ex.id)){
+  const repdbStart = repdbImageUrl(ex, 'start');
+  const repdbPeak = repdbImageUrl(ex, 'peak');
+  if(repdbStart && repdbPeak){
+    frameA = `<img src="${repdbStart}" alt="${ex.name} - inicio" loading="lazy">`;
+    frameB = `<img src="${repdbPeak}" alt="${ex.name} - final" loading="lazy">`;
+  } else if(NO_PHOTO.has(ex.id)){
     const svgs = FALLBACK_POSES[ex.pose]('#eae6dd', '#ffb020');
     const parts = svgs.trim().split('</svg>').filter(s=>s.trim()).map(s=>s+'</svg>');
     frameA = parts[0] || ''; frameB = parts[1] || '';
@@ -123,6 +151,8 @@ function renderIllustration(ex){
 }
 
 function renderExerciseThumbnail(ex){
+  const repdbStart = repdbImageUrl(ex, 'start');
+  if(repdbStart) return `<img src="${repdbStart}" alt="" loading="lazy">`;
   if(NO_PHOTO.has(ex.id)) return `<span class="thumbnail-fallback" aria-hidden="true">🏋️</span>`;
   return `<img src="exercises/${ex.id}/0.jpg" alt="" loading="lazy">`;
 }
@@ -1331,6 +1361,17 @@ function adjustWeight(i, sign){
   ex.weightKg = Math.max(0, ex.weightKg + sign*weightStepKg());
   render();
 }
+function displayReps(ex){ return ex.repsOverride || ex.reps; }
+function adjustReps(i, delta){
+  const ex = state.routine[i];
+  if(!ex || /seg|min/.test(ex.reps)) return;
+  const match = displayReps(ex).match(/^(\d+)(?:-(\d+))?(.*)$/);
+  if(!match) return;
+  const low = Math.max(1, Number(match[1]) + delta);
+  const high = match[2] ? Math.max(low, Number(match[2]) + delta) : null;
+  ex.repsOverride = `${low}${high ? '-' + high : ''}${match[3]}`;
+  render();
+}
 // Ajuste "en vivo" durante el entrenamiento — muta el mismo objeto que ya usan las
 // estaciones restantes de este ejercicio en state.plan, así que se propaga solo.
 function adjustCurrentWeight(sign){
@@ -1499,7 +1540,7 @@ function endWorkoutEarly(){
   finishWorkout();
 }
 function finishWorkout(){
-  if(state.completedExerciseIds.length !== state.routine.length) return;
+  if(state.completedExerciseIds.length === 0) return;
   clearTimer();
   const today = new Date().toISOString().slice(0,10);
   const completedAt = new Date().toISOString();
@@ -1534,7 +1575,7 @@ function finishWorkout(){
     date: today,
     completedAt,
     exerciseIds: doneExercises.map(e=>e.id),
-    exerciseNames: doneExercises.map(e=>`${e.name} (${e.sets}×${e.reps})`),
+    exerciseNames: doneExercises.map(e=>`${e.name} (${e.sets}×${displayReps(e)})`),
     groups: [...new Set(doneExercises.map(e=>e.group))],
     workoutStyle: state.workoutStyle,
     stationsCompleted,
@@ -1818,10 +1859,19 @@ function renderOverview(){
       <span>${ex.name}<br><span class="tag">${ex.group}</span></span>
       <span class="sets-editor">
         <button class="stepper" onclick="adjustSets(${i},-1)">−</button>
-        <span class="sets-val">${ex.sets}×${ex.reps}</span>
+        <span class="sets-val">${ex.sets} series</span>
         <button class="stepper" onclick="adjustSets(${i},1)">+</button>
       </span>
     </div>
+    ${/seg|min/.test(ex.reps) ? `<div class="ex-row" style="border-top:none;padding-top:0;"><span style="font-size:11.5px;color:var(--chalk-dim);">Duración sugerida</span><span class="sets-val">${displayReps(ex)}</span></div>` : `
+    <div class="ex-row" style="border-top:none;padding-top:0;">
+      <span style="font-size:11.5px;color:var(--chalk-dim);">Repeticiones por serie</span>
+      <span class="sets-editor">
+        <button class="stepper" onclick="adjustReps(${i},-1)">−</button>
+        <span class="sets-val">${displayReps(ex)}</span>
+        <button class="stepper" onclick="adjustReps(${i},1)">+</button>
+      </span>
+    </div>`}
     ${ex.weightKg != null ? `
     <div class="ex-row" style="border-top:none;padding-top:0;">
       <span style="font-size:11.5px;color:var(--chalk-dim);">${ex.isFirstTimeWeight ? 'Primera vez — empezamos conservador' : `Última vez: ${formatWeight(ex.lastWeightKg)}`}</span>
@@ -1915,7 +1965,7 @@ function renderWorkout(){
         </button>
         <span class="checklist-copy">
           <span class="checklist-title">${index + 1}. ${ex.name}</span>
-          <span class="checklist-meta">${ex.group} · ${ex.sets} × ${ex.reps}${ex.weightKg != null ? ' · ' + formatWeight(ex.weightKg) : ''}</span>
+          <span class="checklist-meta">${ex.group} · ${ex.sets} × ${displayReps(ex)}${ex.weightKg != null ? ' · ' + formatWeight(ex.weightKg) : ''}</span>
           <span class="checklist-cue">${ex.desc}</span>
         </span>
       </div>`;
@@ -1933,7 +1983,7 @@ function renderWorkout(){
       <div><b>Descanso opcional</b><span>${state.restSecondsLeft ? fmt(state.restSecondsLeft) : 'Inicia 15 segundos cuando lo necesites'}</span></div>
       <button class="btn-ghost rest-button" onclick="startRest()">${state.restSecondsLeft ? 'Reiniciar' : '15 s'}</button>
     </div>
-    <button class="btn-primary btn-block finish-workout ${allDone?'':'disabled'}" onclick="finishWorkout()" ${allDone?'':'disabled'}>Terminar entrenamiento</button>
+    <button class="btn-primary btn-block finish-workout ${completed ? '' : 'disabled'}" onclick="finishWorkout()" ${completed ? '' : 'disabled'}>${allDone ? 'Terminar entrenamiento' : 'Terminar con los ejercicios marcados'}</button>
     ${renderExerciseModal()}
   `;
 }
@@ -2264,6 +2314,10 @@ function renderAjustes(){
       <p style="color:var(--chalk-dim);font-size:12px;line-height:1.5;margin:14px 0 0;">
         Se usa solo para estimar las calorías quemadas por rutina (fórmula MET estándar). No se comparte ni se sube a ningún lado excepto tu propio respaldo de Drive.
       </p>
+    </div>
+    <div class="card" style="padding:13px 14px;">
+      <div class="eyebrow" style="margin-bottom:5px;">Ilustraciones de ejercicios</div>
+      <p style="color:var(--chalk-dim);font-size:12px;line-height:1.45;margin:0;">Datos e ilustraciones por <a href="https://repdb.co" target="_blank" rel="noopener" style="color:var(--accent);">RepDB</a>.</p>
     </div>
   `;
 }
