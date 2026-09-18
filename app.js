@@ -828,6 +828,9 @@ let state = {
   timerId: null,
   workoutClockId: null,
   syncStatus: 'idle',       // idle | syncing | ok | error
+  driveRestored: false,     // se exige antes de generar una rutina nueva
+  driveGateStatus: 'idle',  // idle | syncing | error
+  confirmSyncUpload: false,
 };
 
 /* ---------- Google Drive: inicializar y auto-sync ---------- */
@@ -874,6 +877,8 @@ function forceResetDrive(){
   render();
 }
 function syncNow(){
+  if(!state.confirmSyncUpload){ state.confirmSyncUpload = true; render(); return; }
+  state.confirmSyncUpload = false;
   state.syncStatus = 'syncing'; render();
   DriveSync.connect(async ()=>{
     try{
@@ -884,29 +889,49 @@ function syncNow(){
     render();
   }, ()=>{ state.syncStatus = 'error'; render(); });
 }
+function cancelSyncUpload(){ state.confirmSyncUpload=false; render(); }
 function restoreFromDrive(){
   state.syncStatus = 'syncing'; render();
   DriveSync.connect(async ()=>{
     try{
       const data = await DriveSync.download();
       if(data){
-        if(data.settings) saveSettings(data.settings);
-        if(data.history) localStorage.setItem(LS_HISTORY, JSON.stringify(data.history));
+        // Nunca reemplazar a ciegas: mezclar evita perder sesiones locales no subidas.
+        if(data.settings) saveSettings({ ...data.settings, ...loadSettings() });
+        if(data.history) localStorage.setItem(LS_HISTORY, JSON.stringify(mergeHistories(loadHistory(), data.history)));
         initState();
         restoreActiveWorkout(); // una restauración manual nunca debe borrar una rutina en curso
         state.dashboardStatus = 'idle'; state.dashboard = null; // el historial cambió, recalcular al volver a entrar
       }
+      state.driveRestored = true;
       state.syncStatus = 'ok';
     }catch(e){ console.error(e); state.syncStatus = 'error'; }
     render();
   }, ()=>{ state.syncStatus = 'error'; render(); });
 }
+function restoreDriveBeforeRoutine(onReady){
+  if(state.driveRestored){ onReady(); return; }
+  state.driveGateStatus = 'syncing'; render();
+  DriveSync.connect(async ()=>{
+    try{
+      const data = await DriveSync.download();
+      if(data){
+        if(data.settings) saveSettings({ ...data.settings, ...loadSettings() });
+        if(data.history) localStorage.setItem(LS_HISTORY, JSON.stringify(mergeHistories(loadHistory(), data.history)));
+      }
+      state.driveRestored = true;
+      state.driveGateStatus = 'idle';
+      onReady();
+    }catch(e){ console.error(e); state.driveGateStatus = 'error'; render(); }
+  }, ()=>{ state.driveGateStatus = 'error'; render(); });
+}
 function autoSyncIfConnected(){
-  if(typeof DriveSync === 'undefined' || !DriveSync.connected){
-    driveLog('autoSyncIfConnected(): no hay flag de conexión, no se intenta sincronizar');
+  if(typeof DriveSync === 'undefined'){
+    driveLog('autoSyncIfConnected(): DriveSync no está disponible');
+    state.syncStatus = 'error';
     return;
   }
-  driveLog('autoSyncIfConnected(): flag activo, pidiendo token para subir el historial actualizado');
+  driveLog('autoSyncIfConnected(): subiendo automáticamente la rutina finalizada');
   // Pasa por connect() para renovar el token si hace falta (p.ej. tras recargar la página) —
   // llamar a upload() directo fallaba en silencio cada vez que el token no estaba fresco en memoria.
   state.syncStatus = 'syncing';
@@ -1339,6 +1364,10 @@ function toggleMuscle(id){
 }
 function confirmMuscles(){
   if(state.muscleGroups.length === 0){ return; }
+  if(typeof DriveSync === 'undefined'){ state.driveGateStatus='error'; render(); return; }
+  restoreDriveBeforeRoutine(generateSelectedRoutine);
+}
+function generateSelectedRoutine(){
   const intensity = state.intensityResult || { workSeconds: WORK, maxStations: null, setsAdjust: 0, excludeIds: [], minExercises: 5, note: '' };
   state.workSeconds = intensity.workSeconds;
   state.maxStations = intensity.maxStations;
@@ -1882,6 +1911,10 @@ function renderMuscles(){
         <p style="font-size:12.5px;color:var(--chalk-dim);margin:0;">⚠️ ${selectedWarnings.map(m=>`${m.label} ${formatHoursAgo(hoursSinceGroupTrained(m.id,history))}`).join(', ')} — quizás no se ha recuperado del todo. Puedes continuar si te sientes bien.</p>
       </div>`
     : '';
+  const driveGateNote = state.driveGateStatus === 'syncing'
+    ? `<div class="card" style="border-color:var(--accent);padding:12px 14px;"><p style="font-size:12.5px;margin:0;color:var(--chalk-dim);">☁️ Conectando y restaurando tu respaldo de Drive antes de crear la rutina…</p></div>`
+    : state.driveGateStatus === 'error'
+      ? `<div class="card" style="border-color:var(--bad);padding:12px 14px;"><p style="font-size:12.5px;margin:0;color:var(--chalk-dim);">⚠️ Para proteger tu historial debes conectar y restaurar Google Drive antes de generar la rutina. Revisa la conexión e inténtalo otra vez.</p></div>` : '';
 
   return `
     <header>
@@ -1892,7 +1925,8 @@ function renderMuscles(){
     ${renderDriveRecommendation()}
     <div class="equip-grid">${items}</div>
     ${recoveryNote}
-    <button class="btn-primary btn-block" style="margin-top:10px;" onclick="confirmMuscles()">Generar rutina</button>
+    ${driveGateNote}
+    <button class="btn-primary btn-block" style="margin-top:10px;" onclick="confirmMuscles()" ${state.driveGateStatus==='syncing'?'disabled':''}>${state.driveGateStatus==='syncing'?'Restaurando Drive…':'Generar rutina'}</button>
     <div style="text-align:center;margin-top:10px;">
       <button class="btn-ghost" style="background:none;border:none;color:var(--chalk-dim);font-size:12.5px;text-decoration:underline;" onclick="backToEquip()">← Cambiar equipo</button>
     </div>
@@ -2334,7 +2368,11 @@ function renderNube(){
       <div class="ex-row"><span>Estado</span><span style="color:var(--good);font-weight:700;">Conectado ✓</span></div>
       <div class="ex-row"><span>Última sincronización</span><span>${lastSync}</span></div>
     </div>
-    <button class="btn-primary btn-block" onclick="syncNow()">Sincronizar ahora</button>
+    ${state.confirmSyncUpload ? `
+      <div class="card" style="border-color:var(--accent);padding:13px 14px;">
+        <p style="font-size:12.5px;color:var(--chalk-dim);line-height:1.45;margin:0 0 10px;">⚠️ Esta acción sube el historial de este teléfono y puede reemplazar un respaldo de Drive. Si aún no restauraste datos previos, primero usa “Restaurar desde Drive” para mezclarlos y evitar pérdidas.</p>
+        <div style="display:flex;gap:8px;"><button class="btn-primary" style="flex:1;padding:10px;" onclick="syncNow()">Entiendo, sincronizar</button><button class="btn-ghost" style="flex:1;padding:10px;" onclick="cancelSyncUpload()">Cancelar</button></div>
+      </div>` : `<button class="btn-primary btn-block" onclick="syncNow()">Sincronizar ahora</button>`}
     <div style="height:10px;"></div>
     <button class="btn-ghost btn-block" onclick="restoreFromDrive()">Restaurar desde Drive</button>
     <div style="height:10px;"></div>
