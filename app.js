@@ -15,6 +15,7 @@ const EQUIPMENT_OPTIONS = [
   { id: 'cable_machine',     label: 'Polea / Cable',        icon: '🪢' },
   { id: 'leg_machine',       label: 'Máquina de pierna',    icon: '🦵' },
   { id: 'kettlebell',        label: 'Kettlebell',           icon: '🔔' },
+  { id: 'yoga_ball',         label: 'Pelota de yoga / Fitball', icon: '🔵' },
   { id: 'resistance_band',   label: 'Banda elástica',       icon: '➰' },
   { id: 'pull_up_bar',       label: 'Barra de dominadas',   icon: '➖' },
   { id: 'elliptical_cardio', label: 'Elíptica / Cardio',    icon: '🚴' },
@@ -50,11 +51,11 @@ const PAIN_ZONES = [
 // Ejercicios que se excluyen de la rutina si hay dolor marcado en esa zona
 // (criterio biomecánico general, no una recomendación clínica).
 const PAIN_EXERCISE_EXCLUSIONS = {
-  rodillas:      ['squat_barbell','lunge_db','bw_squat','bw_lunge','goblet_squat','burpee','front_squat_barbell','barbell_hip_thrust','barbell_deadlift','bulgarian_split_squat_db','step_up_db','calf_raise_db','sumo_squat_db','cable_pull_through','cable_kickback','leg_press_machine','calf_raise_machine','hip_abduction_machine','hip_adduction_machine','kb_deadlift','kb_reverse_lunge','band_squat','band_lateral_walk','reverse_lunge_bw','wall_sit','calf_raise_bw','single_leg_glute_bridge','jumping_jacks','high_knees'],
-  espalda_baja:  ['rdl_barbell','rdl_db','row_barbell','kb_swing','burpee','superman','barbell_hip_thrust','barbell_deadlift','db_chest_supported_row','cable_pull_through','cable_woodchop','kb_deadlift','kb_row','band_row','band_pull_apart'],
-  hombros:       ['ohp_barbell','shoulder_press_db','pull_up','lat_pulldown','db_lateral_raise','db_rear_delt_fly','db_arnold_press','cable_reverse_fly','cable_lateral_raise','kb_press','band_shoulder_press','band_lateral_raise','chin_up','scapular_pull','pike_pushup'],
+  rodillas:      ['ball_wall_squat','ball_leg_curl','squat_barbell','lunge_db','bw_squat','bw_lunge','goblet_squat','burpee','front_squat_barbell','barbell_hip_thrust','barbell_deadlift','bulgarian_split_squat_db','step_up_db','calf_raise_db','sumo_squat_db','cable_pull_through','cable_kickback','leg_press_machine','calf_raise_machine','hip_abduction_machine','hip_adduction_machine','kb_deadlift','kb_reverse_lunge','band_squat','band_lateral_walk','reverse_lunge_bw','wall_sit','calf_raise_bw','single_leg_glute_bridge','jumping_jacks','high_knees'],
+  espalda_baja:  ['ball_leg_curl','ball_glute_bridge','ball_crunch','ball_plank','ball_dead_bug','rdl_barbell','rdl_db','row_barbell','kb_swing','burpee','superman','barbell_hip_thrust','barbell_deadlift','db_chest_supported_row','cable_pull_through','cable_woodchop','kb_deadlift','kb_row','band_row','band_pull_apart'],
+  hombros:       ['ball_plank','ohp_barbell','shoulder_press_db','pull_up','lat_pulldown','db_lateral_raise','db_rear_delt_fly','db_arnold_press','cable_reverse_fly','cable_lateral_raise','kb_press','band_shoulder_press','band_lateral_raise','chin_up','scapular_pull','pike_pushup'],
   muñecas:       ['pushup','plank','mountain_climber','burpee','bench_press_db','barbell_bench_press','db_floor_press','db_fly','kb_floor_press','diamond_pushup','bench_tricep_dip','side_plank','hanging_knee_raise'],
-  cuello:        ['ohp_barbell','pull_up','shoulder_press_db','db_arnold_press','kb_press','band_shoulder_press','chin_up','scapular_pull','pike_pushup'],
+  cuello:        ['ball_crunch','ohp_barbell','pull_up','shoulder_press_db','db_arnold_press','kb_press','band_shoulder_press','chin_up','scapular_pull','pike_pushup'],
 };
 // Mapeo más amplio zona -> grupo, solo para el aviso visual en la pantalla de grupos
 // (la exclusión real de ejercicios ya la garantiza PAIN_EXERCISE_EXCLUSIONS).
@@ -127,6 +128,7 @@ function arrowIcon(dir){
 }
 
 function renderIllustration(ex){
+  if(ex.equip.includes('yoga_ball')) return '<div class="card" style="text-align:center"><span style="font-size:48px" aria-hidden="true">🔵</span><p>Pelota de yoga / Fitball</p><p class="sub">Sigue las indicaciones del ejercicio.</p></div>';
   const dir = EX_DIRECTION[ex.id];
   const arrow = dir ? `<div class="illus-arrow">${arrowIcon(dir)}</div>` : `<div class="illus-arrow"></div>`;
   let frameA, frameB;
@@ -152,6 +154,7 @@ function renderIllustration(ex){
 }
 
 function renderExerciseThumbnail(ex){
+  if(ex.equip.includes('yoga_ball')) return '<span class="thumbnail-fallback" aria-hidden="true">🔵</span>';
   const repdbStart = repdbImageUrl(ex, 'start');
   if(repdbStart) return `<img src="${repdbStart}" alt="" loading="lazy">`;
   if(NO_PHOTO.has(ex.id)) return `<span class="thumbnail-fallback" aria-hidden="true">🏋️</span>`;
@@ -198,6 +201,18 @@ const FALLBACK_POSES = {
 /* ---------- Base de ejercicios ---------- */
 // equip: lista de equipo con el que se puede hacer (basta con tener UNO de la lista)
 const EXERCISES = [
+  { id:'ball_wall_squat', name:'Sentadilla con pelota en pared', group:'piernas', equip:['yoga_ball'], sets:3, reps:'12 reps', pose:'squat',
+    desc:'Coloca la pelota entre la espalda y una pared, con los pies un poco adelantados. Baja flexionando las rodillas hasta donde mantengas el control y vuelve a subir, sin perder el apoyo de la pelota.' },
+  { id:'ball_leg_curl', name:'Curl femoral con pelota', group:'piernas', equip:['yoga_ball'], sets:3, reps:'10 reps', pose:'extension',
+    desc:'Boca arriba, apoya los talones en la pelota y los brazos en el piso. Eleva la cadera y acerca la pelota doblando las rodillas; estira las piernas lentamente sin arquear la espalda.' },
+  { id:'ball_glute_bridge', name:'Puente de glúteos con pelota', group:'piernas', equip:['yoga_ball'], sets:3, reps:'12 reps', pose:'hinge',
+    desc:'Boca arriba, apoya las pantorrillas en la pelota y los brazos en el piso. Eleva la cadera apretando los glúteos hasta alinear el tronco con las piernas; baja con control.' },
+  { id:'ball_crunch', name:'Abdominal corto sobre pelota', group:'core', equip:['yoga_ball'], sets:3, reps:'12 reps', pose:'core_dynamic',
+    desc:'Apoya la zona media de la espalda en la pelota, con los pies separados y firmes en el piso. Cruza los brazos sobre el pecho, eleva ligeramente los hombros contrayendo el abdomen y vuelve despacio.' },
+  { id:'ball_plank', name:'Plancha con antebrazos en pelota', group:'core', equip:['yoga_ball'], sets:3, reps:'20-30 seg', pose:'plank',
+    desc:'Apoya los antebrazos en la pelota y separa los pies para ganar estabilidad. Mantén el abdomen firme y el cuerpo alineado, sin hundir la cintura ni dejar que la pelota se aleje.' },
+  { id:'ball_dead_bug', name:'Dead bug con pelota', group:'core', equip:['yoga_ball'], sets:3, reps:'8 reps c/lado', pose:'core_dynamic',
+    desc:'Boca arriba, sujeta la pelota entre las manos y las rodillas elevadas. Extiende lentamente un brazo y la pierna contraria mientras mantienes la pelota con los otros dos apoyos. Alterna sin despegar la zona lumbar del piso.' },
   { id:'squat_barbell', name:'Sentadilla con barra', group:'piernas', equip:['barbell_rack'], sets:3, reps:'10 reps', pose:'squat',
     desc:'Pies al ancho de hombros, barra sobre la espalda alta. Baja hasta que los muslos queden paralelos al piso y empuja con los talones para subir.' },
   { id:'rdl_barbell', name:'Peso muerto rumano con barra', group:'piernas', equip:['barbell_rack'], sets:3, reps:'10 reps', pose:'hinge',
@@ -531,7 +546,7 @@ function cancelDeleteSession(){
 function loadHealth(){
   try{
     const raw = localStorage.getItem(LS_HEALTH);
-    return raw ? JSON.parse(raw) : null;
+    return raw ? GymHealth.stored(JSON.parse(raw)) : null;
   }catch(e){ return null; }
 }
 function saveHealth(h){
@@ -1106,6 +1121,7 @@ function minExercisesForLevel(level){
   return level === 'suave' ? 4 : level === 'desafiante' ? 6 : 5;
 }
 function computeIntensityLevel(feeling, painZones, health){
+  health = GymHealth.stored(health);
   const realPainZones = (painZones||[]).filter(z => z !== 'ninguno');
   const lowSleep = !!(health && typeof health.sleepHours === 'number' && health.sleepHours < 6);
   // "bien dormido" es permisivo si no hay dato: la falta de info de salud no debe bloquear "Desafiante"
@@ -1170,13 +1186,7 @@ function handleShortcutCallback(){
     if(raw){
       try{
         const data = JSON.parse(raw);
-        const sleepHours = typeof data.sleepHours === 'number' ? data.sleepHours : parseFloat(data.sleepHours);
-        const restingHR = typeof data.restingHR === 'number' ? data.restingHR : parseInt(data.restingHR, 10);
-        const health = {
-          sleepHours: isNaN(sleepHours) ? null : sleepHours,
-          restingHR: isNaN(restingHR) ? null : restingHR,
-          syncedAt: new Date().toISOString(),
-        };
+        const health = GymHealth.parse(data);
         saveHealth(health);
         state.health = health;
       }catch(e){ console.error('No se pudo leer el resultado del Shortcut', e); }
@@ -1794,9 +1804,18 @@ function renderCheckin(){
     </div>`;
   }).join('');
 
-  const healthSection = state.health
-    ? `<p style="text-align:center;font-size:12.5px;color:var(--chalk-dim);margin:10px 0 0;">🍏 Sueño ${state.health.sleepHours!=null?state.health.sleepHours.toFixed(1)+'h':'—'} · FC reposo ${state.health.restingHR!=null?state.health.restingHR+' bpm':'—'} <span style="opacity:.6;">(${timeAgo(state.health.syncedAt)})</span></p>`
-    : `<button class="btn-ghost btn-block" style="margin-top:10px;" onclick="openHealthSyncShortcut()">🍏 Sincronizar con Apple Health</button>`;
+  const currentHealth = GymHealth.stored(state.health);
+  const healthMessages = {
+    'update-shortcut': 'Actualiza el atajo de Salud para corregir el cálculo del sueño.',
+    'invalid-samples': 'No pudimos interpretar los intervalos de sueño. Revisa el atajo antes de sincronizar.',
+    'no-data': 'No hay intervalos de sueño disponibles en las últimas 24 h. Revisa los datos y permisos en Salud.',
+    'stale': 'Los datos de Salud están vencidos. Vuelve a sincronizar.',
+  };
+  const healthSection = `
+    ${currentHealth ? `<p style="text-align:center;font-size:12.5px;color:var(--chalk-dim);margin:10px 0 0;">🍏 Sueño (últimas 24 h) ${currentHealth.sleepHours!=null?currentHealth.sleepHours.toFixed(1)+'h':'—'} · FC reposo ${currentHealth.restingHR!=null?currentHealth.restingHR+' bpm':'—'} <span style="opacity:.6;">(${timeAgo(currentHealth.syncedAt)})</span></p>
+    ${healthMessages[currentHealth.sleepStatus] ? `<p class="sub">${healthMessages[currentHealth.sleepStatus]}</p>` : ''}` : ''}
+    <button class="btn-ghost btn-block" style="margin-top:10px;" onclick="openHealthSyncShortcut()">🍏 Sincronizar con Apple Health</button>
+    <p style="text-align:center;font-size:12px;"><a href="shortcuts/Leer-Salud-v2.shortcut" style="color:var(--accent);">Instalar atajo de Salud actualizado</a><br>En Atajos, reemplaza el anterior y conserva el nombre «Rutina Gym - Leer Salud».</p>`;
 
   const computed = computeIntensityLevel(state.feeling, state.painZones, state.health);
   const effectiveLevel = state.intensityOverride || computed.level;

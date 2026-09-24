@@ -1,9 +1,10 @@
-const CACHE_NAME = 'rutina-gym-v2';
+const CACHE_NAME = 'rutina-gym-v3';
 const ASSETS = [
   './',
   './index.html',
   './style.css',
   './app.js',
+  './health-data.js',
   './drive-sync.js',
   './manifest.json',
   './icons/icon-192.png',
