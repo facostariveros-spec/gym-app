@@ -1052,7 +1052,7 @@ initState();
 restoreActiveWorkout();
 
 /* ---------- Puente con Apple Health vía Apple Shortcuts ---------- */
-const HEALTH_SYNC_SHORTCUT = 'Rutina Gym - Leer Salud';
+const HEALTH_SYNC_SHORTCUT = 'Rutina Gym - Leer Salud v2';
 const HEALTH_LOG_SHORTCUT  = 'Rutina Gym - Registrar Entrenamiento';
 
 function appBaseUrl(){
@@ -1815,7 +1815,7 @@ function renderCheckin(){
     ${currentHealth ? `<p style="text-align:center;font-size:12.5px;color:var(--chalk-dim);margin:10px 0 0;">🍏 Sueño (últimas 24 h) ${currentHealth.sleepHours!=null?currentHealth.sleepHours.toFixed(1)+'h':'—'} · FC reposo ${currentHealth.restingHR!=null?currentHealth.restingHR+' bpm':'—'} <span style="opacity:.6;">(${timeAgo(currentHealth.syncedAt)})</span></p>
     ${healthMessages[currentHealth.sleepStatus] ? `<p class="sub">${healthMessages[currentHealth.sleepStatus]}</p>` : ''}` : ''}
     <button class="btn-ghost btn-block" style="margin-top:10px;" onclick="openHealthSyncShortcut()">🍏 Sincronizar con Apple Health</button>
-    <p style="text-align:center;font-size:12px;"><a href="shortcuts/Leer-Salud-v2.shortcut" style="color:var(--accent);">Instalar atajo de Salud actualizado</a><br>En Atajos, reemplaza el anterior y conserva el nombre «Rutina Gym - Leer Salud».</p>`;
+    <p style="text-align:center;font-size:12px;"><a href="https://www.icloud.com/shortcuts/39741aae63a94eedae1501ccaf5903df" style="color:var(--accent);">Instalar atajo de Salud actualizado</a><br>Se abrirá Atajos para agregar «Rutina Gym - Leer Salud v2». No hace falta descargar ningún archivo.</p>`;
 
   const computed = computeIntensityLevel(state.feeling, state.painZones, state.health);
   const effectiveLevel = state.intensityOverride || computed.level;

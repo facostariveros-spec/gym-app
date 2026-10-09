@@ -21,7 +21,8 @@ test('callback calcula, guarda y muestra el sueño; permite volver a sincronizar
   assert.equal(JSON.parse(storage.get('rutina-gym:health')).sleepHours,7);
   assert.match(root.innerHTML,/7\.0h/);
   assert.match(root.innerHTML,/openHealthSyncShortcut/);
-  assert.match(root.innerHTML,/Leer-Salud-v2.shortcut/);
+  assert.match(root.innerHTML,/icloud\.com\/shortcuts\/39741aae63a94eedae1501ccaf5903df/);
+  assert.match(root.innerHTML,/Rutina Gym - Leer Salud v2/);
 });
 test('callback antiguo pide actualizar y no usa sus 17 horas',()=>{
   const {storage,root}=app({sleepHours:17,restingHR:61});

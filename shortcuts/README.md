@@ -2,8 +2,8 @@
 
 ## Instalar la lectura corregida
 
-1. Abre `Leer-Salud-v2.shortcut` en el iPhone y añádelo a Atajos.
-2. Déjalo con el nombre exacto **Rutina Gym - Leer Salud**, reemplazando el atajo anterior. Si iOS le añade un número al nombre, renómbralo.
+1. Instala el atajo desde el enlace de iCloud que muestra la app. No abras el archivo `.shortcut` directamente desde GitHub Pages: Safari muestra ese archivo binario como texto.
+2. Déjalo con el nombre exacto **Rutina Gym - Leer Salud v2**. La app abre ese nombre al sincronizar.
 3. Desde la app, toca **Sincronizar con Apple Health** y autoriza la lectura de sueño y frecuencia cardíaca en reposo cuando iOS lo solicite.
 4. Al regresar, la app muestra el sueño de las **últimas 24 horas**, incluidas las siestas. No es necesariamente el total de la última noche que muestra Salud.
 
