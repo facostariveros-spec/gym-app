@@ -841,6 +841,7 @@ let state = {
   healthLogStatus: 'idle',  // idle | ok
   feedbackSaveStatus: 'idle', // idle | ok — feedback de "¿cómo se sintió?" por ejercicio en el done screen
   health: null,             // { sleepHours, restingHR, syncedAt }
+  healthSyncMessage: '',    // explicación del último retorno de Apple Health
   timerId: null,
   workoutClockId: null,
   syncStatus: 'idle',       // idle | syncing | ok | error
@@ -1070,8 +1071,9 @@ function timeAgo(iso){
 function openHealthSyncShortcut(){
   const successUrl = encodeURIComponent(appBaseUrl() + '?xcb=health_success');
   const cancelUrl  = encodeURIComponent(appBaseUrl() + '?xcb=health_cancel');
+  const errorUrl   = encodeURIComponent(appBaseUrl() + '?xcb=health_error');
   const url = `shortcuts://x-callback-url/run-shortcut?name=${encodeURIComponent(HEALTH_SYNC_SHORTCUT)}`
-    + `&x-success=${successUrl}&x-cancel=${cancelUrl}`;
+    + `&x-success=${successUrl}&x-cancel=${cancelUrl}&x-error=${errorUrl}`;
   window.location.href = url;
 }
 // sessionId: sessionKey() de la sesión que se está registrando (para poder encontrarla
@@ -1189,8 +1191,21 @@ function handleShortcutCallback(){
         const health = GymHealth.parse(data);
         saveHealth(health);
         state.health = health;
-      }catch(e){ console.error('No se pudo leer el resultado del Shortcut', e); }
+        state.healthSyncMessage = '';
+      }catch(e){
+        console.error('No se pudo leer el resultado del Shortcut', e);
+        state.healthSyncMessage = 'Atajos devolvió un resultado que la app no pudo leer. Abre el atajo y ejecútalo una vez para revisar sus permisos de Salud.';
+      }
+    } else {
+      state.healthSyncMessage = 'Atajos terminó sin devolver datos. Abre «Rutina Gym - Leer Salud v2» y ejecútalo una vez para conceder el acceso a Salud.';
     }
+  } else if(xcb === 'health_cancel'){
+    state.healthSyncMessage = 'La sincronización se canceló antes de terminar.';
+  } else if(xcb === 'health_error'){
+    const detail = params.get('errorMessage');
+    state.healthSyncMessage = detail
+      ? `Apple Health no pudo sincronizar: ${detail}`
+      : 'Apple Health no pudo sincronizar. Abre el atajo una vez y confirma sus permisos de Salud.';
   } else if(xcb === 'log_success'){
     const sid = params.get('sid');
     const from = params.get('from') || 'done';
@@ -1815,6 +1830,7 @@ function renderCheckin(){
     ${currentHealth ? `<p style="text-align:center;font-size:12.5px;color:var(--chalk-dim);margin:10px 0 0;">🍏 Sueño (últimas 24 h) ${currentHealth.sleepHours!=null?currentHealth.sleepHours.toFixed(1)+'h':'—'} · FC reposo ${currentHealth.restingHR!=null?currentHealth.restingHR+' bpm':'—'} <span style="opacity:.6;">(${timeAgo(currentHealth.syncedAt)})</span></p>
     ${healthMessages[currentHealth.sleepStatus] ? `<p class="sub">${healthMessages[currentHealth.sleepStatus]}</p>` : ''}` : ''}
     <button class="btn-ghost btn-block" style="margin-top:10px;" onclick="openHealthSyncShortcut()">🍏 Sincronizar con Apple Health</button>
+    ${state.healthSyncMessage ? `<p class="sub" style="margin-top:8px;">${state.healthSyncMessage}</p>` : ''}
     <p style="text-align:center;font-size:12px;"><a href="https://www.icloud.com/shortcuts/39741aae63a94eedae1501ccaf5903df" style="color:var(--accent);">Instalar atajo de Salud actualizado</a><br>Se abrirá Atajos para agregar «Rutina Gym - Leer Salud v2». No hace falta descargar ningún archivo.</p>`;
 
   const computed = computeIntensityLevel(state.feeling, state.painZones, state.health);

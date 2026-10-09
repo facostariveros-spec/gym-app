@@ -30,6 +30,23 @@ test('callback antiguo pide actualizar y no usa sus 17 horas',()=>{
   assert.match(root.innerHTML,/Actualiza el atajo/);
   assert.doesNotMatch(root.innerHTML,/17\.0h/);
 });
+test('un callback vacío o con error explica qué hacer sin sobrescribir los datos previos',()=>{
+  const empty = app();
+  vm.runInContext(`
+    location.search = '?xcb=health_success';
+    handleShortcutCallback();
+    render();
+  `, empty.context);
+  assert.match(empty.root.innerHTML,/Atajos terminó sin devolver datos/);
+
+  const failed = app();
+  vm.runInContext(`
+    location.search = '?xcb=health_error&errorMessage=Permiso%20denegado';
+    handleShortcutCallback();
+    render();
+  `, failed.context);
+  assert.match(failed.root.innerHTML,/Permiso denegado/);
+});
 test('pelota: catálogo completo, filtro de equipo e imágenes sin enlaces rotos',()=>{
   const {context}=app();
   vm.runInContext(`
