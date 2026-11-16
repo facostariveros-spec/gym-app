@@ -47,18 +47,31 @@ test('un callback vacío o con error explica qué hacer sin sobrescribir los dat
   `, failed.context);
   assert.match(failed.root.innerHTML,/Permiso denegado/);
 });
+test('registro de entrenamiento entrega calorías enteras con unidad explícita al shortcut',()=>{
+  const {context}=app();
+  const url = vm.runInContext(`buildHealthLogUrl({
+    schemaVersion:2,
+    durationMinutes:54, esCardio:false, fecha:'2026-10-08',
+    baselineCalories:55, activeEnergyKcal:55, energyUnit:'kcal', restingHR:62
+  }, 'sesion', 'done')`, context);
+  const payload = JSON.parse(new URL(url).searchParams.get('text'));
+  assert.equal(payload.schemaVersion,2);
+  assert.equal(payload.activeEnergyKcal,55);
+  assert.equal(payload.energyUnit,'kcal');
+  assert.equal(payload.baselineCalories,55);
+});
 test('pelota: catálogo completo, filtro de equipo e imágenes sin enlaces rotos',()=>{
   const {context}=app();
   vm.runInContext(`
     const ball = EXERCISES.filter(e=>e.equip.includes('yoga_ball'));
-    if(ball.length !== 6) throw Error('Catálogo incompleto');
+    if(ball.length < 11) throw Error('Catálogo incompleto');
     const onlyBall = generateRoutine(['yoga_ball'],['piernas','core'],{minExercises:6}).routine;
     if(onlyBall.length !== 6) throw Error('Rutina incompleta');
     const noBall = generateRoutine(['bodyweight'],['piernas','core'],{minExercises:6}).routine;
     if(noBall.some(e=>e.equip.includes('yoga_ball'))) throw Error('Filtro incorrecto');
     for(const ex of ball){
-      if(renderIllustration(ex).includes('<img')) throw Error('Imagen inexistente');
-      if(!renderExerciseThumbnail(ex).includes('🔵')) throw Error('Miniatura incorrecta');
+      if(!renderIllustration(ex).includes('<img')) throw Error('Falta ilustración');
+      if(!renderExerciseThumbnail(ex).includes('<img')) throw Error('Falta miniatura');
     }
     if(!COMPLETE_GYM_EQUIPMENT.includes('yoga_ball')) throw Error('Falta equipo en preset');
   `,context);

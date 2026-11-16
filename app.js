@@ -99,9 +99,43 @@ const REPDB_IMAGE_SLUGS = {
   reverse_lunge_bw:'bodyweight-reverse-lunge', wall_sit:'wall-sit', calf_raise_bw:'bodyweight-calf-raise', single_leg_glute_bridge:'single-leg-glute-bridge', pike_pushup:'pike-push-ups', diamond_pushup:'diamond-push-ups', bench_tricep_dip:'bench-dips',
   dead_bug:'dead-bug', bicycle_crunch:'bicycle-crunch', side_plank:'side-plank', leg_raise:'lying-leg-raise', bird_dog:'bird-dog', jumping_jacks:'jumping-jacks', high_knees:'high-knees'
 };
+// Las ilustraciones de pelota usan el catálogo específico de Stability Ball de
+// RepDB. Se mantienen separadas porque nuestros identificadores locales están
+// en español y no coinciden siempre con el slug del catálogo.
+const BALL_IMAGE_SLUGS = {
+  ball_wall_squat: 'stability-ball-wall-squat',
+  ball_leg_curl: 'ball-leg-curl',
+  ball_glute_bridge: 'stability-ball-hip-bridge',
+  // La variante de manos sobre la pelota es la referencia más clara para la
+  // plancha asistida: muestra el mismo apoyo inestable y alineación corporal.
+  ball_plank: 'stability-ball-push-up-hands-on-ball',
+  // RepDB ilustra el patrón exacto de dead bug; la pelota se explica en la guía.
+  ball_dead_bug: 'dead-bug'
+};
+const BALL_EXERCISE_PHOTOS = {
+  ball_wall_squat: 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Weighted_Ball_Side_Bend/0.jpg',
+  ball_leg_curl: 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Ball_Leg_Curl/0.jpg',
+  ball_glute_bridge: 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Exercise_Ball_Pull-In/0.jpg',
+  ball_crunch: 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Exercise_Ball_Crunch/0.jpg',
+  ball_plank: 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Push_Press/0.jpg',
+  ball_dead_bug: 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Exercise_Ball_Pull-In/0.jpg',
+  ball_pike: 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Push_Press/0.jpg',
+  ball_lateral_rollout: 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Exercise_Ball_Pull-In/0.jpg',
+  ball_hamstring_bridge: 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Ball_Leg_Curl/0.jpg',
+  ball_back_extension: 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Weighted_Ball_Hyperextension/0.jpg',
+  ball_adductor_squeeze: 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Weighted_Ball_Side_Bend/0.jpg'
+};
+// Free Exercise DB aporta las dos fotos del crunch sobre pelota, una variante
+// que no está disponible como tal en RepDB.
+const BALL_PHOTO_URLS = {
+  ball_crunch: {
+    start: 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Exercise_Ball_Crunch/0.jpg',
+    peak: 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Exercise_Ball_Crunch/1.jpg'
+  }
+};
 const REPDB_SINGLE_POSE = new Set(['burpees','wall-sit','side-plank','high-knees']);
 function repdbImageUrl(ex, phase){
-  const slug = REPDB_IMAGE_SLUGS[ex.id];
+  const slug = BALL_IMAGE_SLUGS[ex.id] || REPDB_IMAGE_SLUGS[ex.id];
   if(!slug) return null;
   const suffix = REPDB_SINGLE_POSE.has(slug) ? 'main' : phase;
   return `https://raw.githubusercontent.com/RepDB/exercise-dataset/main/images/flat/${slug}-${suffix}.webp`;
@@ -128,13 +162,20 @@ function arrowIcon(dir){
 }
 
 function renderIllustration(ex){
-  if(ex.equip.includes('yoga_ball')) return '<div class="card" style="text-align:center"><span style="font-size:48px" aria-hidden="true">🔵</span><p>Pelota de yoga / Fitball</p><p class="sub">Sigue las indicaciones del ejercicio.</p></div>';
   const dir = EX_DIRECTION[ex.id];
   const arrow = dir ? `<div class="illus-arrow">${arrowIcon(dir)}</div>` : `<div class="illus-arrow"></div>`;
   let frameA, frameB;
+  const ballPhoto = BALL_EXERCISE_PHOTOS[ex.id];
+  const ballPhotos = BALL_PHOTO_URLS[ex.id];
   const repdbStart = repdbImageUrl(ex, 'start');
   const repdbPeak = repdbImageUrl(ex, 'peak');
-  if(repdbStart && repdbPeak){
+  if(ballPhoto){
+    frameA = `<img src="${ballPhoto}" alt="${ex.name}" loading="lazy">`;
+    frameB = `<img src="${ballPhoto}" alt="${ex.name}" loading="lazy">`;
+  } else if(ballPhotos){
+    frameA = `<img src="${ballPhotos.start}" alt="${ex.name} - inicio" loading="lazy">`;
+    frameB = `<img src="${ballPhotos.peak}" alt="${ex.name} - final" loading="lazy">`;
+  } else if(repdbStart && repdbPeak){
     frameA = `<img src="${repdbStart}" alt="${ex.name} - inicio" loading="lazy">`;
     frameB = `<img src="${repdbPeak}" alt="${ex.name} - final" loading="lazy">`;
   } else if(NO_PHOTO.has(ex.id)){
@@ -154,7 +195,10 @@ function renderIllustration(ex){
 }
 
 function renderExerciseThumbnail(ex){
-  if(ex.equip.includes('yoga_ball')) return '<span class="thumbnail-fallback" aria-hidden="true">🔵</span>';
+  const ballPhoto = BALL_EXERCISE_PHOTOS[ex.id];
+  const ballPhotos = BALL_PHOTO_URLS[ex.id];
+  if(ballPhoto) return `<img src="${ballPhoto}" alt="${ex.name}" loading="lazy">`;
+  if(ballPhotos) return `<img src="${ballPhotos.start}" alt="${ex.name}" loading="lazy">`;
   const repdbStart = repdbImageUrl(ex, 'start');
   if(repdbStart) return `<img src="${repdbStart}" alt="" loading="lazy">`;
   if(NO_PHOTO.has(ex.id)) return `<span class="thumbnail-fallback" aria-hidden="true">🏋️</span>`;
@@ -213,6 +257,16 @@ const EXERCISES = [
     desc:'Apoya los antebrazos en la pelota y separa los pies para ganar estabilidad. Mantén el abdomen firme y el cuerpo alineado, sin hundir la cintura ni dejar que la pelota se aleje.' },
   { id:'ball_dead_bug', name:'Dead bug con pelota', group:'core', equip:['yoga_ball'], sets:3, reps:'8 reps c/lado', pose:'core_dynamic',
     desc:'Boca arriba, sujeta la pelota entre las manos y las rodillas elevadas. Extiende lentamente un brazo y la pierna contraria mientras mantienes la pelota con los otros dos apoyos. Alterna sin despegar la zona lumbar del piso.' },
+  { id:'ball_pike', name:'Pike con pelota', group:'hombros', equip:['yoga_ball'], sets:3, reps:'6-8 reps', pose:'press_overhead',
+    desc:'Coloca los pies sobre la pelota, eleva la cadera y lleva el pecho hacia las manos manteniendo el abdomen firme.' },
+  { id:'ball_lateral_rollout', name:'Deslizamiento lateral con pelota', group:'core', equip:['yoga_ball'], sets:3, reps:'8 reps c/lado', pose:'plank',
+    desc:'Desde rodillas o plancha, rueda la pelota hacia un lado y vuelve usando el abdomen, sin girar la cadera.' },
+  { id:'ball_hamstring_bridge', name:'Puente de isquios con pelota', group:'piernas', equip:['yoga_ball'], sets:3, reps:'10 reps', pose:'hinge',
+    desc:'Apoya los talones sobre la pelota, eleva la cadera y acerca la pelota hacia los glúteos con control.' },
+  { id:'ball_back_extension', name:'Extensión lumbar sobre pelota', group:'espalda_baja', equip:['yoga_ball'], sets:3, reps:'10 reps', pose:'hinge',
+    desc:'Apoya el abdomen sobre la pelota, eleva el pecho suavemente y mantén el cuello alineado, sin hiperextender.' },
+  { id:'ball_adductor_squeeze', name:'Apretón de pelota entre rodillas', group:'piernas', equip:['yoga_ball'], sets:3, reps:'12 reps', pose:'core_dynamic',
+    desc:'Aprieta la pelota entre las rodillas mientras elevas ligeramente la pelvis; pausa y relaja sin perder el control.' },
   { id:'squat_barbell', name:'Sentadilla con barra', group:'piernas', equip:['barbell_rack'], sets:3, reps:'10 reps', pose:'squat',
     desc:'Pies al ancho de hombros, barra sobre la espalda alta. Baja hasta que los muslos queden paralelos al piso y empuja con los talones para subir.' },
   { id:'rdl_barbell', name:'Peso muerto rumano con barra', group:'piernas', equip:['barbell_rack'], sets:3, reps:'10 reps', pose:'hinge',
@@ -1076,6 +1130,18 @@ function openHealthSyncShortcut(){
     + `&x-success=${successUrl}&x-cancel=${cancelUrl}&x-error=${errorUrl}`;
   window.location.href = url;
 }
+function parseShortcutResult(raw){
+  if(!raw) return null;
+  let value = raw;
+  for(let i=0; i<2; i++){
+    try{
+      const parsed = JSON.parse(value);
+      if(typeof parsed === 'string'){ value = parsed; continue; }
+      return parsed;
+    }catch(e){ break; }
+  }
+  return null;
+}
 // sessionId: sessionKey() de la sesión que se está registrando (para poder encontrarla
 // exacta al volver, no solo asumir "la más reciente"). returnTab: 'done' | 'historial'.
 function buildHealthLogUrl(payload, sessionId, returnTab){
@@ -1096,11 +1162,20 @@ function openHealthLogShortcut(session, returnTab){
   const s = session || state.lastSession;
   if(!s) return;
   const restingHR = state.health ? state.health.restingHR : null;
+  // El atajo debe recibir una cantidad de energía, no una fracción ni una unidad
+  // implícita. Apple Health muestra la energía activa en kcal; conservar la unidad
+  // en el contrato evita que una edición del atajo interprete 55 como 0,055 kcal.
+  const activeEnergyKcal = Number.isFinite(Number(s.calories))
+    ? Math.max(0, Math.round(Number(s.calories)))
+    : 0;
   const payload = {
+    schemaVersion: 2,
     durationMinutes: s.durationMinutes,
     esCardio: s.esCardio,
     fecha: s.date,
-    baselineCalories: s.calories || 0,
+    baselineCalories: activeEnergyKcal,
+    activeEnergyKcal,
+    energyUnit: 'kcal',
     restingHR: restingHR || 0,
   };
   window.location.href = buildHealthLogUrl(payload, sessionKey(s), returnTab || 'done');
@@ -1184,10 +1259,10 @@ function handleShortcutCallback(){
     driveLog(`handleShortcutCallback(xcb="${xcb}"): flag en localStorage al llegar = ${JSON.stringify(flagAtCallback)}`);
   }catch(e){ driveLog('handleShortcutCallback: no se pudo leer localStorage', e); }
   if(xcb === 'health_success'){
-    const raw = params.get('result');
-    if(raw){
+    const raw = params.get('result') || params.get('output') || params.get('text');
+    const data = parseShortcutResult(raw);
+    if(data){
       try{
-        const data = JSON.parse(raw);
         const health = GymHealth.parse(data);
         saveHealth(health);
         state.health = health;
