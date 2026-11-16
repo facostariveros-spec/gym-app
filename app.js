@@ -1127,6 +1127,7 @@ function openHealthSyncShortcut(){
   const cancelUrl  = encodeURIComponent(appBaseUrl() + '?xcb=health_cancel');
   const errorUrl   = encodeURIComponent(appBaseUrl() + '?xcb=health_error');
   const url = `shortcuts://x-callback-url/run-shortcut?name=${encodeURIComponent(HEALTH_SYNC_SHORTCUT)}`
+    + '&input=text&text='
     + `&x-success=${successUrl}&x-cancel=${cancelUrl}&x-error=${errorUrl}`;
   window.location.href = url;
 }
