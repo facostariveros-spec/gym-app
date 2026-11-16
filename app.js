@@ -1899,7 +1899,9 @@ function renderCheckin(){
   const healthMessages = {
     'update-shortcut': 'Actualiza el atajo de Salud para corregir el cálculo del sueño.',
     'invalid-samples': 'No pudimos interpretar los intervalos de sueño. Revisa el atajo antes de sincronizar.',
-    'no-data': 'No hay intervalos de sueño disponibles en las últimas 24 h. Revisa los datos y permisos en Salud.',
+    'no-data': currentHealth && currentHealth.restingHR != null
+      ? 'Llegó la FC, pero no el sueño. En Salud > Compartir > Apps > Atajos, activa el permiso Sueño y vuelve a sincronizar.'
+      : 'No hay intervalos de sueño disponibles en las últimas 24 h. Revisa los datos y permisos en Salud.',
     'stale': 'Los datos de Salud están vencidos. Vuelve a sincronizar.',
   };
   const healthSection = `
