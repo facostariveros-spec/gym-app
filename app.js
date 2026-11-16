@@ -1907,7 +1907,7 @@ function renderCheckin(){
     ${healthMessages[currentHealth.sleepStatus] ? `<p class="sub">${healthMessages[currentHealth.sleepStatus]}</p>` : ''}` : ''}
     <button class="btn-ghost btn-block" style="margin-top:10px;" onclick="openHealthSyncShortcut()">🍏 Sincronizar con Apple Health</button>
     ${state.healthSyncMessage ? `<p class="sub" style="margin-top:8px;">${state.healthSyncMessage}</p>` : ''}
-    <p style="text-align:center;font-size:12px;"><a href="https://www.icloud.com/shortcuts/39741aae63a94eedae1501ccaf5903df" style="color:var(--accent);">Instalar atajo de Salud actualizado</a><br>Se abrirá Atajos para agregar «Rutina Gym - Leer Salud v2». No hace falta descargar ningún archivo.</p>`;
+    <p style="text-align:center;font-size:12px;"><a href="https://www.icloud.com/shortcuts/39741aae63a94eedae1501ccaf5903df" style="color:var(--accent);">Actualizar atajo de Salud</a><br>Reinstala «Rutina Gym - Leer Salud v2» para que devuelva los datos a la app. No descargues el archivo desde GitHub.</p>`;
 
   const computed = computeIntensityLevel(state.feeling, state.painZones, state.health);
   const effectiveLevel = state.intensityOverride || computed.level;
