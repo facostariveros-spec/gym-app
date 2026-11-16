@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rutina-gym-v3';
+const CACHE_NAME = 'rutina-gym-v4-health-sync';
 const ASSETS = [
   './',
   './index.html',
