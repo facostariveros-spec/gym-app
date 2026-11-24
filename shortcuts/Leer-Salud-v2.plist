@@ -52,23 +52,6 @@
 									</dict>
 								</dict>
 							</dict>
-							<dict>
-								<key>Bounded</key>
-								<true/>
-								<key>Operator</key>
-								<integer>1001</integer>
-								<key>Property</key>
-								<string>Start Date</string>
-								<key>Removable</key>
-								<false/>
-								<key>Values</key>
-								<dict>
-									<key>Number</key>
-									<string>2</string>
-									<key>Unit</key>
-									<integer>16</integer>
-								</dict>
-							</dict>
 						</array>
 						<key>WFContentPredicateBoundedDate</key>
 						<false/>
