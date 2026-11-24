@@ -1134,7 +1134,15 @@ function openHealthSyncShortcut(){
 function parseShortcutResult(raw){
   if(!raw) return null;
   let value = raw;
-  for(let i=0; i<2; i++){
+  for(let i=0; i<4; i++){
+    // x-callback-url can encode the result more than once (especially when
+    // the shortcut returns a Text action containing a Dictionary).
+    if(typeof value === 'string' && /%[0-9a-f]{2}/i.test(value)){
+      try{
+        const decoded = decodeURIComponent(value);
+        if(decoded !== value) { value = decoded; continue; }
+      }catch(e){}
+    }
     try{
       const parsed = JSON.parse(value);
       if(typeof parsed === 'string'){ value = parsed; continue; }
@@ -1260,7 +1268,11 @@ function handleShortcutCallback(){
     driveLog(`handleShortcutCallback(xcb="${xcb}"): flag en localStorage al llegar = ${JSON.stringify(flagAtCallback)}`);
   }catch(e){ driveLog('handleShortcutCallback: no se pudo leer localStorage', e); }
   if(xcb === 'health_success'){
-    const raw = params.get('result') || params.get('output') || params.get('text');
+    // Accept both query and fragment callbacks; Shortcuts has used both forms
+    // across iOS versions, and URLSearchParams decodes only one layer.
+    const hashParams = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+    const raw = params.get('result') || params.get('output') || params.get('text')
+      || hashParams.get('result') || hashParams.get('output') || hashParams.get('text');
     const data = parseShortcutResult(raw);
     if(data){
       try{
