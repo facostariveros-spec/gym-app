@@ -597,6 +597,29 @@
 				</dict>
 			</dict>
 		</dict>
+		<dict>
+			<key>WFWorkflowActionIdentifier</key>
+			<string>is.workflow.actions.output</string>
+			<key>WFWorkflowActionParameters</key>
+			<dict>
+				<key>UUID</key>
+				<string>3C9A068E-6C01-4C59-805A-059FA6FCA41C</string>
+				<key>WFOutput</key>
+				<dict>
+					<key>Value</key>
+					<dict>
+						<key>OutputName</key>
+						<string>Text</string>
+						<key>OutputUUID</key>
+						<string>ED8C3775-D014-450C-A7B8-A243FD2713AC</string>
+						<key>Type</key>
+						<string>ActionOutput</string>
+					</dict>
+					<key>WFSerializationType</key>
+					<string>WFTextTokenAttachment</string>
+				</dict>
+			</dict>
+		</dict>
 	</array>
 	<key>WFWorkflowClientVersion</key>
 	<string>4711</string>
